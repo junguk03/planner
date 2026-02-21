@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, Event } from '@/lib/supabase';
+import { supabase, Event, Memo } from '@/lib/supabase';
 import Login from '@/components/Login';
 import MonthView from '@/components/MonthView';
 import WeekView from '@/components/WeekView';
 import EventModal from '@/components/EventModal';
+import Sidebar from '@/components/Sidebar';
+import MemoModal from '@/components/MemoModal';
+import PinnedMemo from '@/components/PinnedMemo';
 
 type ViewMode = 'month' | 'week';
 
@@ -22,6 +25,15 @@ export default function Home() {
     event: Partial<Event> | null;
     date: string;
   }>({ open: false, event: null, date: '' });
+
+  // Sidebar & Memo state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [memoModal, setMemoModal] = useState<{
+    open: boolean;
+    memo: Partial<Memo> | null;
+  }>({ open: false, memo: null });
+  const [pinnedMemoIds, setPinnedMemoIds] = useState<string[]>([]);
 
   // Check auth
   useEffect(() => {
@@ -73,6 +85,25 @@ export default function Home() {
     void fetchEvents();
   }, [fetchEvents]);
 
+  // Fetch memos
+  const fetchMemos = useCallback(async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('memos')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (!error && data) {
+      setMemos(data);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void fetchMemos();
+  }, [fetchMemos]);
+
   // Navigation
   const goToday = () => {
     const now = new Date();
@@ -113,7 +144,7 @@ export default function Home() {
     }
   };
 
-  // CRUD
+  // Event CRUD
   const saveEvent = async (eventData: Partial<Event>) => {
     if (!user) return;
 
@@ -174,10 +205,53 @@ export default function Home() {
     fetchEvents();
   };
 
+  // Memo CRUD
+  const saveMemo = async (memoData: Partial<Memo>) => {
+    if (!user) return;
+
+    if (memoData.id) {
+      await supabase
+        .from('memos')
+        .update({
+          title: memoData.title,
+          content: memoData.content,
+          color: memoData.color,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', memoData.id);
+    } else {
+      await supabase.from('memos').insert({
+        user_id: user.id,
+        title: memoData.title,
+        content: memoData.content,
+        color: memoData.color,
+      });
+    }
+
+    setMemoModal({ open: false, memo: null });
+    fetchMemos();
+  };
+
+  const deleteMemo = async (id: string) => {
+    setPinnedMemoIds((prev) => prev.filter((pid) => pid !== id));
+    await supabase.from('memos').delete().eq('id', id);
+    fetchMemos();
+  };
+
+  const togglePinMemo = (memo: Memo) => {
+    setPinnedMemoIds((prev) =>
+      prev.includes(memo.id)
+        ? prev.filter((id) => id !== memo.id)
+        : [...prev, memo.id]
+    );
+  };
+
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
     setEvents([]);
+    setMemos([]);
+    setPinnedMemoIds([]);
   };
 
   if (loading) {
@@ -193,12 +267,23 @@ export default function Home() {
   }
 
   const monthLabel = `${year}년 ${month + 1}월`;
+  const pinnedMemos = memos.filter((m) => pinnedMemoIds.includes(m.id));
 
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="flex items-center gap-4">
+          {/* Hamburger */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-2 transition-colors hover:bg-card-hover"
+            title="메뉴"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          </button>
           <h1 className="text-xl font-bold">Planner</h1>
           <div className="flex items-center gap-2">
             <button
@@ -242,12 +327,6 @@ export default function Home() {
               주
             </button>
           </div>
-          <button
-            onClick={logout}
-            className="rounded-lg px-4 py-1.5 text-sm text-muted transition-colors hover:bg-card-hover hover:text-danger"
-          >
-            로그아웃
-          </button>
         </div>
       </header>
 
@@ -281,7 +360,18 @@ export default function Home() {
         />
       )}
 
-      {/* Modal */}
+      {/* Pinned Memos */}
+      {pinnedMemos.map((memo, i) => (
+        <PinnedMemo
+          key={memo.id}
+          memo={memo}
+          initialX={120 + i * 30}
+          initialY={120 + i * 30}
+          onClose={(id) => setPinnedMemoIds((prev) => prev.filter((pid) => pid !== id))}
+        />
+      ))}
+
+      {/* Event Modal */}
       {modal.open && (
         <EventModal
           event={modal.event}
@@ -291,6 +381,34 @@ export default function Home() {
           onClose={() => setModal({ open: false, event: null, date: '' })}
         />
       )}
+
+      {/* Memo Modal */}
+      {memoModal.open && (
+        <MemoModal
+          memo={memoModal.memo}
+          onSave={saveMemo}
+          onClose={() => setMemoModal({ open: false, memo: null })}
+        />
+      )}
+
+      {/* Sidebar */}
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        memos={memos}
+        onCreateMemo={() => {
+          setMemoModal({ open: true, memo: {} });
+          setSidebarOpen(false);
+        }}
+        onEditMemo={(memo) => {
+          setMemoModal({ open: true, memo });
+          setSidebarOpen(false);
+        }}
+        onDeleteMemo={deleteMemo}
+        onPinMemo={togglePinMemo}
+        pinnedMemoIds={pinnedMemoIds}
+        onLogout={logout}
+      />
     </div>
   );
 }
