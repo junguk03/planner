@@ -1,65 +1,271 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { supabase, Event } from '@/lib/supabase';
+import Login from '@/components/Login';
+import MonthView from '@/components/MonthView';
+import WeekView from '@/components/WeekView';
+import EventModal from '@/components/EventModal';
+
+type ViewMode = 'month' | 'week';
 
 export default function Home() {
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<ViewMode>('month');
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth());
+  const [selectedDay, setSelectedDay] = useState(new Date().getDate());
+  const [events, setEvents] = useState<Event[]>([]);
+  const [modal, setModal] = useState<{
+    open: boolean;
+    event: Partial<Event> | null;
+    date: string;
+  }>({ open: false, event: null, date: '' });
+
+  // Check auth
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({ id: session.user.id, email: session.user.email! });
+      }
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({ id: session.user.id, email: session.user.email! });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch events
+  const fetchEvents = useCallback(async () => {
+    if (!user) return;
+
+    const fetchStart = new Date(year, month, 1);
+    fetchStart.setDate(fetchStart.getDate() - 7);
+    const fetchEnd = new Date(year, month + 1, 0);
+    fetchEnd.setDate(fetchEnd.getDate() + 7);
+
+    const fmtDate = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('date', fmtDate(fetchStart))
+      .lte('date', fmtDate(fetchEnd))
+      .order('date')
+      .order('start_time');
+
+    if (!error && data) {
+      setEvents(data);
+    }
+  }, [user, year, month]);
+
+  useEffect(() => {
+    void fetchEvents();
+  }, [fetchEvents]);
+
+  // Navigation
+  const goToday = () => {
+    const now = new Date();
+    setYear(now.getFullYear());
+    setMonth(now.getMonth());
+    setSelectedDay(now.getDate());
+  };
+
+  const goPrev = () => {
+    if (view === 'month') {
+      if (month === 0) {
+        setYear(year - 1);
+        setMonth(11);
+      } else {
+        setMonth(month - 1);
+      }
+    } else {
+      const d = new Date(year, month, selectedDay - 7);
+      setYear(d.getFullYear());
+      setMonth(d.getMonth());
+      setSelectedDay(d.getDate());
+    }
+  };
+
+  const goNext = () => {
+    if (view === 'month') {
+      if (month === 11) {
+        setYear(year + 1);
+        setMonth(0);
+      } else {
+        setMonth(month + 1);
+      }
+    } else {
+      const d = new Date(year, month, selectedDay + 7);
+      setYear(d.getFullYear());
+      setMonth(d.getMonth());
+      setSelectedDay(d.getDate());
+    }
+  };
+
+  // CRUD
+  const saveEvent = async (eventData: Partial<Event>) => {
+    if (!user) return;
+
+    if (eventData.id) {
+      await supabase
+        .from('events')
+        .update({
+          title: eventData.title,
+          description: eventData.description,
+          date: eventData.date,
+          start_time: eventData.start_time,
+          end_time: eventData.end_time,
+          color: eventData.color,
+        })
+        .eq('id', eventData.id);
+    } else {
+      await supabase.from('events').insert({
+        user_id: user.id,
+        title: eventData.title,
+        description: eventData.description,
+        date: eventData.date,
+        start_time: eventData.start_time,
+        end_time: eventData.end_time,
+        color: eventData.color,
+      });
+    }
+
+    setModal({ open: false, event: null, date: '' });
+    fetchEvents();
+  };
+
+  const deleteEvent = async (id: string) => {
+    await supabase.from('events').delete().eq('id', id);
+    setModal({ open: false, event: null, date: '' });
+    fetchEvents();
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setEvents([]);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted">로딩 중...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLogin={() => {}} />;
+  }
+
+  const monthLabel = `${year}년 ${month + 1}월`;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex h-screen flex-col">
+      {/* Header */}
+      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold">Planner</h1>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={goPrev}
+              className="rounded-lg px-2 py-1 text-sm transition-colors hover:bg-card-hover"
+            >
+              ◀
+            </button>
+            <span className="min-w-[120px] text-center text-sm font-medium">{monthLabel}</span>
+            <button
+              onClick={goNext}
+              className="rounded-lg px-2 py-1 text-sm transition-colors hover:bg-card-hover"
+            >
+              ▶
+            </button>
+          </div>
+          <button
+            onClick={goToday}
+            className="rounded-lg border border-border px-3 py-1 text-xs transition-colors hover:bg-card-hover"
+          >
+            오늘
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-border">
+            <button
+              onClick={() => setView('month')}
+              className={`px-3 py-1 text-xs transition-colors ${
+                view === 'month' ? 'bg-primary text-white' : 'hover:bg-card-hover'
+              }`}
+            >
+              월
+            </button>
+            <button
+              onClick={() => setView('week')}
+              className={`px-3 py-1 text-xs transition-colors ${
+                view === 'week' ? 'bg-primary text-white' : 'hover:bg-card-hover'
+              }`}
+            >
+              주
+            </button>
+          </div>
+          <button
+            onClick={logout}
+            className="rounded-lg px-3 py-1 text-xs text-muted transition-colors hover:bg-card-hover hover:text-danger"
+          >
+            로그아웃
+          </button>
+        </div>
+      </header>
+
+      {/* Calendar */}
+      {view === 'month' ? (
+        <MonthView
+          year={year}
+          month={month}
+          events={events}
+          onDateClick={(date) => {
+            setModal({ open: true, event: {}, date });
+          }}
+          onEventClick={(event) => {
+            setModal({ open: true, event, date: event.date });
+          }}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      ) : (
+        <WeekView
+          year={year}
+          month={month}
+          day={selectedDay}
+          events={events}
+          onTimeClick={(date, time) => {
+            setModal({ open: true, event: { start_time: time }, date });
+          }}
+          onEventClick={(event) => {
+            setModal({ open: true, event, date: event.date });
+          }}
+        />
+      )}
+
+      {/* Modal */}
+      {modal.open && (
+        <EventModal
+          event={modal.event}
+          date={modal.date}
+          onSave={saveEvent}
+          onDelete={deleteEvent}
+          onClose={() => setModal({ open: false, event: null, date: '' })}
+        />
+      )}
     </div>
   );
 }
