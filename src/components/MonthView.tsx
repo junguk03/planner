@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Event } from '@/lib/supabase';
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -12,14 +12,53 @@ type Props = {
   onDateClick: (date: string) => void;
   onEventClick: (event: Event) => void;
   onMoveEvent: (eventId: string, newDate: string) => void;
+  onCopyEvent: (event: Event, newDate: string) => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onEventClick, onMoveEvent }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onEventClick, onMoveEvent, onCopyEvent }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+
+  // Right-click copy
+  const [copySource, setCopySource] = useState<Event | null>(null);
+  const [copyTargetDate, setCopyTargetDate] = useState<string | null>(null);
+  const copyTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!copySource) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el?.closest('[data-month-date]') as HTMLElement | null;
+      if (cell) {
+        const date = cell.getAttribute('data-month-date')!;
+        copyTargetRef.current = date;
+        setCopyTargetDate(date);
+      } else {
+        copyTargetRef.current = null;
+        setCopyTargetDate(null);
+      }
+    };
+
+    const handleUp = () => {
+      if (copyTargetRef.current && copySource) {
+        onCopyEvent(copySource, copyTargetRef.current);
+      }
+      setCopySource(null);
+      setCopyTargetDate(null);
+      copyTargetRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [copySource, onCopyEvent]);
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -49,7 +88,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
       </div>
 
       {/* Calendar grid */}
-      <div className="grid flex-1 grid-cols-7 auto-rows-fr">
+      <div className="grid flex-1 grid-cols-7 auto-rows-fr overflow-y-auto">
         {cells.map((day, i) => {
           if (day === null) {
             return <div key={`empty-${i}`} className="border-b border-r border-border/50" />;
@@ -59,10 +98,12 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
           const isToday = dateStr === todayStr;
           const dayOfWeek = (firstDay + day - 1) % 7;
           const isDragOver = dragOverDate === dateStr;
+          const isCopyTarget = copyTargetDate === dateStr;
 
           return (
             <div
               key={day}
+              data-month-date={dateStr}
               onClick={() => onDateClick(dateStr)}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -78,7 +119,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                 }
               }}
               className={`cursor-pointer border-b border-r border-border/50 p-2 transition-colors hover:bg-card-hover ${
-                isDragOver ? 'bg-primary/20' : ''
+                isDragOver || isCopyTarget ? 'bg-primary/20' : ''
               }`}
             >
               <div
@@ -95,7 +136,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                 {day}
               </div>
               <div className="space-y-1">
-                {dayEvents.slice(0, 3).map((ev) => (
+                {dayEvents.map((ev) => (
                   <div
                     key={ev.id}
                     draggable
@@ -103,12 +144,19 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                       e.dataTransfer.setData('eventId', ev.id);
                       e.dataTransfer.effectAllowed = 'move';
                     }}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onMouseDown={(e) => {
+                      if (e.button === 2) {
+                        e.stopPropagation();
+                        setCopySource(ev);
+                      }
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onEventClick(ev);
                     }}
                     className="cursor-grab truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight active:cursor-grabbing"
-                    style={{ backgroundColor: ev.color }}
+                    style={{ backgroundColor: ev.color, pointerEvents: copySource ? 'none' : 'auto' }}
                     title={ev.title}
                   >
                     {ev.start_time && (
@@ -117,16 +165,18 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                     {ev.title}
                   </div>
                 ))}
-                {dayEvents.length > 3 && (
-                  <div className="px-1.5 text-xs text-muted">
-                    +{dayEvents.length - 3}개
-                  </div>
-                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Copy mode indicator */}
+      {copySource && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-lg">
+          복사 중: {copySource.title}
+        </div>
+      )}
     </div>
   );
 }

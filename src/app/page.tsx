@@ -182,6 +182,33 @@ export default function Home() {
     fetchEvents();
   };
 
+  const copyEvent = async (event: Event, newDate: string, newStartTime?: string) => {
+    if (!user) return;
+
+    const startTime = newStartTime || event.start_time;
+    let endTime = event.end_time;
+
+    if (newStartTime && event.start_time && event.end_time) {
+      const oldStartMin = parseInt(event.start_time.split(':')[0]) * 60 + parseInt(event.start_time.split(':')[1]);
+      const oldEndMin = parseInt(event.end_time.split(':')[0]) * 60 + parseInt(event.end_time.split(':')[1]);
+      const duration = oldEndMin - oldStartMin;
+      const newStartMin = parseInt(newStartTime.split(':')[0]) * 60 + parseInt(newStartTime.split(':')[1]);
+      const newEndMin = newStartMin + duration;
+      endTime = `${String(Math.floor(newEndMin / 60)).padStart(2, '0')}:${String(newEndMin % 60).padStart(2, '0')}`;
+    }
+
+    await supabase.from('events').insert({
+      user_id: user.id,
+      title: event.title,
+      description: event.description,
+      date: newDate,
+      start_time: startTime,
+      end_time: endTime,
+      color: event.color,
+    });
+    fetchEvents();
+  };
+
   const moveEvent = async (eventId: string, newDate: string, newStartTime?: string) => {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
@@ -343,6 +370,7 @@ export default function Home() {
             setModal({ open: true, event, date: event.date });
           }}
           onMoveEvent={moveEvent}
+          onCopyEvent={copyEvent}
         />
       ) : (
         <WeekView
@@ -350,13 +378,14 @@ export default function Home() {
           month={month}
           day={selectedDay}
           events={events}
-          onTimeClick={(date, time) => {
-            setModal({ open: true, event: { start_time: time }, date });
+          onTimeClick={(date, time, endTime) => {
+            setModal({ open: true, event: { start_time: time, end_time: endTime }, date });
           }}
           onEventClick={(event) => {
             setModal({ open: true, event, date: event.date });
           }}
           onMoveEvent={moveEvent}
+          onCopyEvent={copyEvent}
         />
       )}
 
