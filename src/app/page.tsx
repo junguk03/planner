@@ -9,6 +9,7 @@ import EventModal from '@/components/EventModal';
 import Sidebar from '@/components/Sidebar';
 import MemoModal from '@/components/MemoModal';
 import PinnedMemo from '@/components/PinnedMemo';
+import SelectMode from '@/components/SelectMode';
 
 type ViewMode = 'month' | 'week';
 
@@ -34,6 +35,7 @@ export default function Home() {
     memo: Partial<Memo> | null;
   }>({ open: false, memo: null });
   const [pinnedMemoIds, setPinnedMemoIds] = useState<string[]>([]);
+  const [selectModeOpen, setSelectModeOpen] = useState(false);
 
   // Check auth
   useEffect(() => {
@@ -213,6 +215,31 @@ export default function Home() {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
+    // Check if there's an event at the target position → swap
+    const targetEvent = events.find((e) => {
+      if (e.id === eventId) return false;
+      if (e.date !== newDate) return false;
+      if (newStartTime) {
+        // Week view: match by hour
+        const eHour = e.start_time ? parseInt(e.start_time.split(':')[0]) : -1;
+        const targetHour = parseInt(newStartTime.split(':')[0]);
+        return eHour === targetHour;
+      }
+      // Month view: same date (swap first found)
+      return !e.start_time && !event.start_time;
+    });
+
+    if (targetEvent) {
+      // Swap: move target to dragged event's original position
+      const swapData: Record<string, string | null> = { date: event.date };
+      if (event.start_time) {
+        swapData.start_time = event.start_time;
+        swapData.end_time = event.end_time;
+      }
+      await supabase.from('events').update(swapData).eq('id', targetEvent.id);
+    }
+
+    // Move dragged event to target position
     const updateData: Record<string, string | null> = { date: newDate };
     if (newStartTime !== undefined) {
       const oldStart = event.start_time;
@@ -272,6 +299,75 @@ export default function Home() {
         : [...prev, memo.id]
     );
   };
+
+  const batchCopy = async (
+    selectedEvents: Event[],
+    mode: 'weekly' | 'daily',
+    options: { startDate?: string; endDate?: string; targetDate?: string }
+  ) => {
+    if (!user) return;
+
+    const inserts: Array<{
+      user_id: string;
+      title: string;
+      description: string | null;
+      date: string;
+      start_time: string | null;
+      end_time: string | null;
+      color: string;
+    }> = [];
+
+    if (mode === 'weekly' && options.startDate && options.endDate) {
+      const start = new Date(options.startDate + 'T00:00:00');
+      const end = new Date(options.endDate + 'T00:00:00');
+
+      for (const ev of selectedEvents) {
+        const evDate = new Date(ev.date + 'T00:00:00');
+        const evDow = evDate.getDay();
+
+        const cursor = new Date(start);
+        while (cursor <= end) {
+          if (cursor.getDay() === evDow) {
+            const dateStr = fmtDateUtil(cursor);
+            // Skip if same as original date
+            if (dateStr !== ev.date) {
+              inserts.push({
+                user_id: user.id,
+                title: ev.title,
+                description: ev.description,
+                date: dateStr,
+                start_time: ev.start_time,
+                end_time: ev.end_time,
+                color: ev.color,
+              });
+            }
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      }
+    } else if (mode === 'daily' && options.targetDate) {
+      for (const ev of selectedEvents) {
+        inserts.push({
+          user_id: user.id,
+          title: ev.title,
+          description: ev.description,
+          date: options.targetDate,
+          start_time: ev.start_time,
+          end_time: ev.end_time,
+          color: ev.color,
+        });
+      }
+    }
+
+    if (inserts.length > 0) {
+      await supabase.from('events').insert(inserts);
+      fetchEvents();
+    }
+    setSelectModeOpen(false);
+  };
+
+  const fmtDateUtil = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   const logout = async () => {
     await supabase.auth.signOut();
@@ -336,6 +432,12 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSelectModeOpen(true)}
+            className="rounded-lg border border-border px-4 py-1.5 text-sm transition-colors hover:bg-card-hover"
+          >
+            선택
+          </button>
           <div className="flex overflow-hidden rounded-lg border border-border">
             <button
               onClick={() => setView('month')}
@@ -417,6 +519,15 @@ export default function Home() {
           memo={memoModal.memo}
           onSave={saveMemo}
           onClose={() => setMemoModal({ open: false, memo: null })}
+        />
+      )}
+
+      {/* Select Mode */}
+      {selectModeOpen && (
+        <SelectMode
+          events={events}
+          onClose={() => setSelectModeOpen(false)}
+          onBatchCopy={batchCopy}
         />
       )}
 
