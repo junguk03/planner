@@ -151,6 +151,29 @@ export default function Home() {
     fetchEvents();
   };
 
+  const moveEvent = async (eventId: string, newDate: string, newStartTime?: string) => {
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+
+    const updateData: Record<string, string | null> = { date: newDate };
+    if (newStartTime !== undefined) {
+      const oldStart = event.start_time;
+      const oldEnd = event.end_time;
+      updateData.start_time = newStartTime;
+      if (oldStart && oldEnd) {
+        const oldStartMin = parseInt(oldStart.split(':')[0]) * 60 + parseInt(oldStart.split(':')[1]);
+        const oldEndMin = parseInt(oldEnd.split(':')[0]) * 60 + parseInt(oldEnd.split(':')[1]);
+        const duration = oldEndMin - oldStartMin;
+        const newStartMin = parseInt(newStartTime.split(':')[0]) * 60 + parseInt(newStartTime.split(':')[1]);
+        const newEndMin = newStartMin + duration;
+        updateData.end_time = `${String(Math.floor(newEndMin / 60)).padStart(2, '0')}:${String(newEndMin % 60).padStart(2, '0')}`;
+      }
+    }
+
+    await supabase.from('events').update(updateData).eq('id', eventId);
+    fetchEvents();
+  };
+
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -240,6 +263,7 @@ export default function Home() {
           onEventClick={(event) => {
             setModal({ open: true, event, date: event.date });
           }}
+          onMoveEvent={moveEvent}
         />
       ) : (
         <WeekView
@@ -253,6 +277,7 @@ export default function Home() {
           onEventClick={(event) => {
             setModal({ open: true, event, date: event.date });
           }}
+          onMoveEvent={moveEvent}
         />
       )}
 

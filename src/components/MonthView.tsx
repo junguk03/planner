@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Event } from '@/lib/supabase';
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -10,13 +11,15 @@ type Props = {
   events: Event[];
   onDateClick: (date: string) => void;
   onEventClick: (event: Event) => void;
+  onMoveEvent: (eventId: string, newDate: string) => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onEventClick }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onEventClick, onMoveEvent }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -55,12 +58,28 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
           const dayEvents = getEventsForDay(day);
           const isToday = dateStr === todayStr;
           const dayOfWeek = (firstDay + day - 1) % 7;
+          const isDragOver = dragOverDate === dateStr;
 
           return (
             <div
               key={day}
               onClick={() => onDateClick(dateStr)}
-              className="cursor-pointer border-b border-r border-border/50 p-2 transition-colors hover:bg-card-hover"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverDate(dateStr);
+              }}
+              onDragLeave={() => setDragOverDate(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverDate(null);
+                const eventId = e.dataTransfer.getData('eventId');
+                if (eventId) {
+                  onMoveEvent(eventId, dateStr);
+                }
+              }}
+              className={`cursor-pointer border-b border-r border-border/50 p-2 transition-colors hover:bg-card-hover ${
+                isDragOver ? 'bg-primary/20' : ''
+              }`}
             >
               <div
                 className={`mb-1 inline-flex h-8 w-8 items-center justify-center rounded-full text-sm ${
@@ -79,11 +98,16 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                 {dayEvents.slice(0, 3).map((ev) => (
                   <div
                     key={ev.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('eventId', ev.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onEventClick(ev);
                     }}
-                    className="truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight"
+                    className="cursor-grab truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight active:cursor-grabbing"
                     style={{ backgroundColor: ev.color }}
                     title={ev.title}
                   >

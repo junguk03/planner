@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Event } from '@/lib/supabase';
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -12,6 +13,7 @@ type Props = {
   events: Event[];
   onTimeClick: (date: string, time: string) => void;
   onEventClick: (event: Event) => void;
+  onMoveEvent: (eventId: string, newDate: string, newStartTime?: string) => void;
 };
 
 function getWeekDates(year: number, month: number, day: number) {
@@ -35,10 +37,11 @@ function timeToY(time: string) {
   return h * 60 + m;
 }
 
-export default function WeekView({ year, month, day, events, onTimeClick, onEventClick }: Props) {
+export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onMoveEvent }: Props) {
   const weekDates = getWeekDates(year, month, day);
   const today = new Date();
   const todayStr = formatDate(today);
+  const [dragOverCell, setDragOverCell] = useState<string | null>(null);
 
   const getEventsForDate = (dateStr: string) =>
     events
@@ -80,12 +83,32 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
           const dateStr = formatDate(d);
           const allDay = getAllDayEvents(dateStr);
           return (
-            <div key={i} className="min-h-[32px] border-l border-border/50 p-1">
+            <div
+              key={i}
+              className="min-h-[32px] border-l border-border/50 p-1"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverCell(`allday-${dateStr}`);
+              }}
+              onDragLeave={() => setDragOverCell(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverCell(null);
+                const eventId = e.dataTransfer.getData('eventId');
+                if (eventId) onMoveEvent(eventId, dateStr);
+              }}
+              style={{ backgroundColor: dragOverCell === `allday-${dateStr}` ? 'rgba(59,130,246,0.2)' : undefined }}
+            >
               {allDay.map((ev) => (
                 <div
                   key={ev.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('eventId', ev.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   onClick={() => onEventClick(ev)}
-                  className="cursor-pointer truncate rounded px-1.5 py-0.5 text-xs font-medium text-white"
+                  className="cursor-grab truncate rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing"
                   style={{ backgroundColor: ev.color }}
                 >
                   {ev.title}
@@ -108,15 +131,32 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
               </div>
               {weekDates.map((d, di) => {
                 const dateStr = formatDate(d);
+                const cellKey = `${dateStr}-${hour}`;
                 const hourEvents = getEventsForDate(dateStr).filter((e) => {
                   const h = parseInt(e.start_time!.split(':')[0]);
                   return h === hour;
                 });
+                const isDragOver = dragOverCell === cellKey;
                 return (
                   <div
                     key={di}
-                    className="relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50"
+                    className={`relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50 ${
+                      isDragOver ? 'bg-primary/20' : ''
+                    }`}
                     onClick={() => onTimeClick(dateStr, `${String(hour).padStart(2, '0')}:00`)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverCell(cellKey);
+                    }}
+                    onDragLeave={() => setDragOverCell(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCell(null);
+                      const eventId = e.dataTransfer.getData('eventId');
+                      if (eventId) {
+                        onMoveEvent(eventId, dateStr, `${String(hour).padStart(2, '0')}:00`);
+                      }
+                    }}
                   >
                     {hourEvents.map((ev) => {
                       const startMin = timeToY(ev.start_time!);
@@ -126,11 +166,16 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                       return (
                         <div
                           key={ev.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('eventId', ev.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
                             onEventClick(ev);
                           }}
-                          className="absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white"
+                          className="absolute left-0.5 right-0.5 cursor-grab overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing"
                           style={{
                             backgroundColor: ev.color,
                             top: `${top}px`,
