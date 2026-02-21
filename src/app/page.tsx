@@ -174,37 +174,37 @@ export default function Home() {
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold">Planner</h1>
-          <div className="flex items-center gap-1">
+      <header className="flex items-center justify-between border-b border-border px-6 py-4">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold">Planner</h1>
+          <div className="flex items-center gap-2">
             <button
               onClick={goPrev}
-              className="rounded-lg px-2 py-1 text-sm transition-colors hover:bg-card-hover"
+              className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
             >
               ◀
             </button>
-            <span className="min-w-[120px] text-center text-sm font-medium">{monthLabel}</span>
+            <span className="min-w-[140px] text-center text-base font-medium">{monthLabel}</span>
             <button
               onClick={goNext}
-              className="rounded-lg px-2 py-1 text-sm transition-colors hover:bg-card-hover"
+              className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
             >
               ▶
             </button>
           </div>
           <button
             onClick={goToday}
-            className="rounded-lg border border-border px-3 py-1 text-xs transition-colors hover:bg-card-hover"
+            className="rounded-lg border border-border px-4 py-1.5 text-sm transition-colors hover:bg-card-hover"
           >
             오늘
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <div className="flex overflow-hidden rounded-lg border border-border">
             <button
               onClick={() => setView('month')}
-              className={`px-3 py-1 text-xs transition-colors ${
+              className={`px-4 py-1.5 text-sm transition-colors ${
                 view === 'month' ? 'bg-primary text-white' : 'hover:bg-card-hover'
               }`}
             >
@@ -212,7 +212,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setView('week')}
-              className={`px-3 py-1 text-xs transition-colors ${
+              className={`px-4 py-1.5 text-sm transition-colors ${
                 view === 'week' ? 'bg-primary text-white' : 'hover:bg-card-hover'
               }`}
             >
@@ -221,7 +221,7 @@ export default function Home() {
           </div>
           <button
             onClick={logout}
-            className="rounded-lg px-3 py-1 text-xs text-muted transition-colors hover:bg-card-hover hover:text-danger"
+            className="rounded-lg px-4 py-1.5 text-sm text-muted transition-colors hover:bg-card-hover hover:text-danger"
           >
             로그아웃
           </button>

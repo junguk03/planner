@@ -51,18 +51,18 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border">
+      <div className="grid grid-cols-[70px_repeat(7,1fr)] border-b border-border">
         <div />
         {weekDates.map((d, i) => {
           const dateStr = formatDate(d);
           const isToday = dateStr === todayStr;
           return (
-            <div key={i} className="border-l border-border/50 py-2 text-center">
-              <div className={`text-xs ${i === 0 ? 'text-danger' : i === 6 ? 'text-primary' : 'text-muted'}`}>
+            <div key={i} className="border-l border-border/50 py-3 text-center">
+              <div className={`text-sm ${i === 0 ? 'text-danger' : i === 6 ? 'text-primary' : 'text-muted'}`}>
                 {DAYS[i]}
               </div>
               <div
-                className={`mx-auto mt-0.5 flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium ${
+                className={`mx-auto mt-1 flex h-9 w-9 items-center justify-center rounded-full text-base font-medium ${
                   isToday ? 'bg-primary text-white' : ''
                 }`}
               >
@@ -74,18 +74,18 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
       </div>
 
       {/* All-day events */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border">
-        <div className="flex items-center justify-center text-[10px] text-muted">종일</div>
+      <div className="grid grid-cols-[70px_repeat(7,1fr)] border-b border-border">
+        <div className="flex items-center justify-center text-xs text-muted">종일</div>
         {weekDates.map((d, i) => {
           const dateStr = formatDate(d);
           const allDay = getAllDayEvents(dateStr);
           return (
-            <div key={i} className="min-h-[28px] border-l border-border/50 p-0.5">
+            <div key={i} className="min-h-[32px] border-l border-border/50 p-1">
               {allDay.map((ev) => (
                 <div
                   key={ev.id}
                   onClick={() => onEventClick(ev)}
-                  className="cursor-pointer truncate rounded px-1 py-0.5 text-[10px] font-medium text-white"
+                  className="cursor-pointer truncate rounded px-1.5 py-0.5 text-xs font-medium text-white"
                   style={{ backgroundColor: ev.color }}
                 >
                   {ev.title}
@@ -98,11 +98,11 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
 
       {/* Time grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+        <div className="grid grid-cols-[70px_repeat(7,1fr)]">
           {HOURS.map((hour) => (
             <div key={hour} className="contents">
-              <div className="relative h-14 border-b border-border/30 pr-2 text-right">
-                <span className="-translate-y-1/2 text-[10px] text-muted">
+              <div className="relative h-16 border-b border-border/30 pr-3 text-right">
+                <span className="-translate-y-1/2 text-xs text-muted">
                   {String(hour).padStart(2, '0')}:00
                 </span>
               </div>
@@ -115,14 +115,14 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                 return (
                   <div
                     key={di}
-                    className="relative h-14 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50"
+                    className="relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50"
                     onClick={() => onTimeClick(dateStr, `${String(hour).padStart(2, '0')}:00`)}
                   >
                     {hourEvents.map((ev) => {
                       const startMin = timeToY(ev.start_time!);
                       const endMin = ev.end_time ? timeToY(ev.end_time) : startMin + 60;
-                      const top = ((startMin % 60) / 60) * 56;
-                      const height = Math.max(((endMin - startMin) / 60) * 56, 18);
+                      const top = ((startMin % 60) / 60) * 64;
+                      const height = Math.max(((endMin - startMin) / 60) * 64, 22);
                       return (
                         <div
                           key={ev.id}
@@ -130,7 +130,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                             e.stopPropagation();
                             onEventClick(ev);
                           }}
-                          className="absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded px-1 py-0.5 text-[10px] font-medium text-white"
+                          className="absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white"
                           style={{
                             backgroundColor: ev.color,
                             top: `${top}px`,
@@ -139,8 +139,8 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                           }}
                         >
                           <div className="truncate">{ev.title}</div>
-                          {height > 24 && (
-                            <div className="truncate opacity-70">
+                          {height > 30 && (
+                            <div className="truncate text-[11px] opacity-70">
                               {ev.start_time?.slice(0, 5)} - {ev.end_time?.slice(0, 5)}
                             </div>
                           )}

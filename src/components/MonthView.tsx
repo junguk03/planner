@@ -36,7 +36,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
         {DAYS.map((d, i) => (
           <div
             key={d}
-            className={`py-2 text-center text-sm font-medium ${
+            className={`py-3 text-center text-base font-medium ${
               i === 0 ? 'text-danger' : i === 6 ? 'text-primary' : 'text-muted'
             }`}
           >
@@ -60,10 +60,10 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
             <div
               key={day}
               onClick={() => onDateClick(dateStr)}
-              className="cursor-pointer border-b border-r border-border/50 p-1 transition-colors hover:bg-card-hover"
+              className="cursor-pointer border-b border-r border-border/50 p-2 transition-colors hover:bg-card-hover"
             >
               <div
-                className={`mb-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                className={`mb-1 inline-flex h-8 w-8 items-center justify-center rounded-full text-sm ${
                   isToday
                     ? 'bg-primary font-bold text-white'
                     : dayOfWeek === 0
@@ -75,7 +75,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
               >
                 {day}
               </div>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {dayEvents.slice(0, 3).map((ev) => (
                   <div
                     key={ev.id}
@@ -83,18 +83,18 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
                       e.stopPropagation();
                       onEventClick(ev);
                     }}
-                    className="truncate rounded px-1 py-0.5 text-[10px] font-medium text-white leading-tight"
+                    className="truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight"
                     style={{ backgroundColor: ev.color }}
                     title={ev.title}
                   >
                     {ev.start_time && (
-                      <span className="mr-0.5 opacity-80">{ev.start_time.slice(0, 5)}</span>
+                      <span className="mr-1 opacity-80">{ev.start_time.slice(0, 5)}</span>
                     )}
                     {ev.title}
                   </div>
                 ))}
                 {dayEvents.length > 3 && (
-                  <div className="px-1 text-[10px] text-muted">
+                  <div className="px-1.5 text-xs text-muted">
                     +{dayEvents.length - 3}개
                   </div>
                 )}
