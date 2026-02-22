@@ -10,17 +10,48 @@ type Props = {
   month: number;
   events: Event[];
   onDateClick: (date: string) => void;
+  onDateRangeSelect: (dates: string[]) => void;
   onEventClick: (event: Event) => void;
   onMoveEvent: (eventId: string, newDate: string) => void;
   onCopyEvent: (event: Event, newDate: string) => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onEventClick, onMoveEvent, onCopyEvent }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onMoveEvent, onCopyEvent }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+
+  // Date range selection (left-click drag on empty area)
+  const [rangeStartDay, setRangeStartDay] = useState<number | null>(null);
+  const [rangeEndDay, setRangeEndDay] = useState<number | null>(null);
+  const rangeProcessed = useRef(false);
+
+  useEffect(() => {
+    const cleanup = () => {
+      setTimeout(() => {
+        if (!rangeProcessed.current) {
+          setRangeStartDay(null);
+          setRangeEndDay(null);
+        }
+        rangeProcessed.current = false;
+      }, 0);
+    };
+    document.addEventListener('mouseup', cleanup);
+    return () => document.removeEventListener('mouseup', cleanup);
+  }, []);
+
+  const getSelectedRange = () => {
+    if (rangeStartDay === null || rangeEndDay === null) return [];
+    const minDay = Math.min(rangeStartDay, rangeEndDay);
+    const maxDay = Math.max(rangeStartDay, rangeEndDay);
+    const dates: string[] = [];
+    for (let d = minDay; d <= maxDay; d++) {
+      dates.push(getDateStr(d));
+    }
+    return dates;
+  };
 
   // Right-click copy
   const [copySource, setCopySource] = useState<Event | null>(null);
@@ -104,7 +135,34 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
             <div
               key={day}
               data-month-date={dateStr}
-              onClick={() => onDateClick(dateStr)}
+              onMouseDown={(e) => {
+                if (e.button === 0 && e.target === e.currentTarget && !copySource) {
+                  setRangeStartDay(day);
+                  setRangeEndDay(day);
+                }
+              }}
+              onMouseEnter={() => {
+                if (rangeStartDay !== null) {
+                  setRangeEndDay(day);
+                }
+              }}
+              onMouseUp={(e) => {
+                if (rangeStartDay !== null && e.button === 0) {
+                  const endDay = rangeEndDay ?? rangeStartDay;
+                  rangeProcessed.current = true;
+                  if (rangeStartDay !== endDay) {
+                    const minD = Math.min(rangeStartDay, endDay);
+                    const maxD = Math.max(rangeStartDay, endDay);
+                    const dates: string[] = [];
+                    for (let d = minD; d <= maxD; d++) dates.push(getDateStr(d));
+                    onDateRangeSelect(dates);
+                  } else {
+                    onDateClick(dateStr);
+                  }
+                  setRangeStartDay(null);
+                  setRangeEndDay(null);
+                }
+              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragOverDate(dateStr);
@@ -120,7 +178,7 @@ export default function MonthView({ year, month, events, onDateClick, onEventCli
               }}
               className={`cursor-pointer border-b border-r border-border/50 p-2 transition-colors hover:bg-card-hover ${
                 isDragOver || isCopyTarget ? 'bg-primary/20' : ''
-              }`}
+              } ${getSelectedRange().includes(dateStr) ? 'bg-success/20' : ''}`}
             >
               <div
                 className={`mb-1 inline-flex h-8 w-8 items-center justify-center rounded-full text-sm ${

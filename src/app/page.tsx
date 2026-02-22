@@ -36,6 +36,7 @@ export default function Home() {
   }>({ open: false, memo: null });
   const [pinnedMemoIds, setPinnedMemoIds] = useState<string[]>([]);
   const [selectModeOpen, setSelectModeOpen] = useState(false);
+  const [multiDates, setMultiDates] = useState<string[]>([]);
 
   // Check auth
   useEffect(() => {
@@ -162,6 +163,18 @@ export default function Home() {
           color: eventData.color,
         })
         .eq('id', eventData.id);
+    } else if (multiDates.length > 1) {
+      // Multi-date insert
+      const inserts = multiDates.map((date) => ({
+        user_id: user.id,
+        title: eventData.title,
+        description: eventData.description,
+        date,
+        start_time: eventData.start_time,
+        end_time: eventData.end_time,
+        color: eventData.color,
+      }));
+      await supabase.from('events').insert(inserts);
     } else {
       await supabase.from('events').insert({
         user_id: user.id,
@@ -175,6 +188,7 @@ export default function Home() {
     }
 
     setModal({ open: false, event: null, date: '' });
+    setMultiDates([]);
     fetchEvents();
   };
 
@@ -466,9 +480,15 @@ export default function Home() {
           month={month}
           events={events}
           onDateClick={(date) => {
+            setMultiDates([]);
             setModal({ open: true, event: {}, date });
           }}
+          onDateRangeSelect={(dates) => {
+            setMultiDates(dates);
+            setModal({ open: true, event: {}, date: dates[0] });
+          }}
           onEventClick={(event) => {
+            setMultiDates([]);
             setModal({ open: true, event, date: event.date });
           }}
           onMoveEvent={moveEvent}
@@ -507,9 +527,14 @@ export default function Home() {
         <EventModal
           event={modal.event}
           date={modal.date}
+          multiDates={multiDates}
+          existingEvents={events}
           onSave={saveEvent}
           onDelete={deleteEvent}
-          onClose={() => setModal({ open: false, event: null, date: '' })}
+          onClose={() => {
+            setModal({ open: false, event: null, date: '' });
+            setMultiDates([]);
+          }}
         />
       )}
 

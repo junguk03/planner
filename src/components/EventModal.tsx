@@ -11,6 +11,8 @@ const COLORS = [
 type Props = {
   event: Partial<Event> | null;
   date: string;
+  multiDates?: string[];
+  existingEvents: Event[];
   onSave: (event: Partial<Event>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -25,16 +27,58 @@ function getInitialEndTime(event: Partial<Event> | null) {
   return '';
 }
 
-export default function EventModal({ event, date, onSave, onDelete, onClose }: Props) {
+function timeToMin(t: string) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function checkConflict(
+  date: string,
+  startTime: string,
+  endTime: string,
+  existingEvents: Event[],
+  editingId?: string
+): Event | null {
+  if (!startTime) return null;
+
+  const newStart = timeToMin(startTime);
+  const newEnd = endTime ? timeToMin(endTime) : newStart + 60;
+
+  for (const ev of existingEvents) {
+    if (ev.id === editingId) continue;
+    if (ev.date !== date) continue;
+    if (!ev.start_time) continue;
+
+    const evStart = timeToMin(ev.start_time);
+    const evEnd = ev.end_time ? timeToMin(ev.end_time) : evStart + 60;
+
+    // Overlap check
+    if (newStart < evEnd && newEnd > evStart) {
+      return ev;
+    }
+  }
+  return null;
+}
+
+export default function EventModal({ event, date, multiDates, existingEvents, onSave, onDelete, onClose }: Props) {
   const [title, setTitle] = useState(event?.id ? event.title || '' : '');
   const [description, setDescription] = useState(event?.id ? event.description || '' : '');
   const [startTime, setStartTime] = useState(event?.start_time || '');
   const [endTime, setEndTime] = useState(getInitialEndTime(event));
   const [color, setColor] = useState(event?.color || COLORS[0]);
+  const [conflict, setConflict] = useState<Event | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
+    // Check for time conflicts
+    const conflicting = checkConflict(date, startTime, endTime, existingEvents, event?.id);
+    if (conflicting) {
+      setConflict(conflicting);
+      return;
+    }
+
     onSave({
       ...(event?.id ? { id: event.id } : {}),
       title: title.trim(),
@@ -46,6 +90,16 @@ export default function EventModal({ event, date, onSave, onDelete, onClose }: P
     });
   };
 
+  // Clear conflict when time changes
+  const handleStartChange = (v: string) => {
+    setStartTime(v);
+    setConflict(null);
+  };
+  const handleEndChange = (v: string) => {
+    setEndTime(v);
+    setConflict(null);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <form
@@ -53,9 +107,14 @@ export default function EventModal({ event, date, onSave, onDelete, onClose }: P
         onSubmit={handleSubmit}
         className="w-full max-w-md rounded-2xl bg-card p-6 shadow-xl"
       >
-        <h2 className="mb-4 text-lg font-bold">
+        <h2 className="mb-1 text-lg font-bold">
           {event?.id ? '일정 수정' : '새 일정'}
         </h2>
+        {multiDates && multiDates.length > 1 && (
+          <div className="mb-3 rounded-lg bg-success/10 px-3 py-2 text-sm text-success">
+            {multiDates.length}개 날짜에 동시 추가 ({multiDates[0].slice(5)} ~ {multiDates[multiDates.length - 1].slice(5)})
+          </div>
+        )}
 
         <div className="mb-3">
           <input
@@ -85,7 +144,7 @@ export default function EventModal({ event, date, onSave, onDelete, onClose }: P
             <input
               type="time"
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
+              onChange={(e) => handleStartChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
             />
           </div>
@@ -94,11 +153,26 @@ export default function EventModal({ event, date, onSave, onDelete, onClose }: P
             <input
               type="time"
               value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
+              onChange={(e) => handleEndChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
             />
           </div>
         </div>
+
+        {/* Conflict warning */}
+        {conflict && (
+          <div className="mb-3 rounded-lg border border-danger/50 bg-danger/10 px-4 py-3">
+            <div className="text-sm font-medium text-danger">시간이 겹칩니다</div>
+            <div className="mt-1 flex items-center gap-2 text-xs text-foreground">
+              <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conflict.color }} />
+              <span className="font-medium">{conflict.title}</span>
+              <span className="text-muted">
+                {conflict.start_time?.slice(0, 5)} - {conflict.end_time?.slice(0, 5)}
+              </span>
+              <span className="text-muted">에 이미 일정이 있습니다</span>
+            </div>
+          </div>
+        )}
 
         <div className="mb-5">
           <label className="mb-2 block text-xs text-muted">색상</label>
