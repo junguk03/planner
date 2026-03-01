@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, Event, Memo } from '@/lib/supabase';
 import Login from '@/components/Login';
 import MonthView from '@/components/MonthView';
@@ -58,6 +58,21 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Auto date update: check every minute if date changed
+  const todayRef = useRef(new Date().getDate());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      if (now.getDate() !== todayRef.current) {
+        todayRef.current = now.getDate();
+        setYear(now.getFullYear());
+        setMonth(now.getMonth());
+        setSelectedDay(now.getDate());
+      }
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Fetch events
   const fetchEvents = useCallback(async () => {
     if (!user) return;
@@ -87,6 +102,18 @@ export default function Home() {
   useEffect(() => {
     void fetchEvents();
   }, [fetchEvents]);
+
+  // Realtime: listen for event changes
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel('events-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `user_id=eq.${user.id}` }, () => {
+        fetchEvents();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, fetchEvents]);
 
   // Fetch memos
   const fetchMemos = useCallback(async () => {
