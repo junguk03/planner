@@ -12,11 +12,12 @@ type Props = {
   onDateClick: (date: string) => void;
   onDateRangeSelect: (dates: string[]) => void;
   onEventClick: (event: Event) => void;
+  onToggleDone: (eventId: string) => void;
   onMoveEvent: (eventId: string, newDate: string) => void;
   onCopyEvent: (event: Event, newDate: string) => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onMoveEvent, onCopyEvent }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onCopyEvent }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
@@ -213,14 +214,23 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                       e.stopPropagation();
                       onEventClick(ev);
                     }}
-                    className="cursor-grab truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight active:cursor-grabbing"
+                    className={`cursor-grab truncate rounded px-1.5 py-1 text-xs font-medium text-white leading-tight active:cursor-grabbing flex items-center gap-1 ${ev.done ? 'opacity-50' : ''}`}
                     style={{ backgroundColor: ev.color, pointerEvents: copySource ? 'none' : 'auto' }}
                     title={ev.title}
                   >
-                    {ev.start_time && (
-                      <span className="mr-1 opacity-80">{ev.start_time.slice(0, 5)}</span>
-                    )}
-                    {ev.title}
+                    <input
+                      type="checkbox"
+                      checked={ev.done}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
+                      className="h-3 w-3 shrink-0 accent-white cursor-pointer"
+                    />
+                    <span className={`truncate ${ev.done ? 'line-through' : ''}`}>
+                      {ev.start_time && (
+                        <span className="mr-1 opacity-80">{ev.start_time.slice(0, 5)}</span>
+                      )}
+                      {ev.title}
+                    </span>
                   </div>
                 ))}
               </div>

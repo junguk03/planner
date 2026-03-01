@@ -19,6 +19,7 @@ export type Event = {
   start_time: string | null;  // HH:MM
   end_time: string | null;    // HH:MM
   color: string;
+  done: boolean;
   created_at: string;
 };
 

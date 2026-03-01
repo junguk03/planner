@@ -14,6 +14,7 @@ type Props = {
   events: Event[];
   onTimeClick: (date: string, time: string, endTime?: string) => void;
   onEventClick: (event: Event) => void;
+  onToggleDone: (eventId: string) => void;
   onMoveEvent: (eventId: string, newDate: string, newStartTime?: string) => void;
   onCopyEvent: (event: Event, newDate: string, newStartTime?: string) => void;
 };
@@ -39,7 +40,7 @@ function timeToY(time: string) {
   return h * 60 + m;
 }
 
-export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onMoveEvent, onCopyEvent }: Props) {
+export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onCopyEvent }: Props) {
   const weekDates = getWeekDates(year, month, day);
   const today = new Date();
   const todayStr = formatDate(today);
@@ -188,10 +189,17 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                     }
                   }}
                   onClick={() => onEventClick(ev)}
-                  className="cursor-grab truncate rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing"
+                  className={`cursor-grab truncate rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing flex items-center gap-1 ${ev.done ? 'opacity-50' : ''}`}
                   style={{ backgroundColor: ev.color, pointerEvents: copySource ? 'none' : 'auto' }}
                 >
-                  {ev.title}
+                  <input
+                    type="checkbox"
+                    checked={ev.done}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
+                    className="h-3 w-3 shrink-0 accent-white cursor-pointer"
+                  />
+                  <span className={ev.done ? 'line-through' : ''}>{ev.title}</span>
                 </div>
               ))}
             </div>
@@ -296,18 +304,27 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                             e.stopPropagation();
                             onEventClick(ev);
                           }}
-                          className="absolute left-0.5 right-0.5 cursor-grab overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing"
+                          className={`absolute left-0.5 right-0.5 cursor-grab overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
                           style={{
                             backgroundColor: ev.color,
                             top: `${top}px`,
                             height: `${height}px`,
-                            opacity: 0.9,
+                            opacity: ev.done ? 0.5 : 0.9,
                             pointerEvents: copySource ? 'none' : 'auto',
                           }}
                         >
-                          <div className="truncate">{ev.title}</div>
+                          <div className="flex items-center gap-1 truncate">
+                            <input
+                              type="checkbox"
+                              checked={ev.done}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
+                              className="h-3 w-3 shrink-0 accent-white cursor-pointer"
+                            />
+                            <span className={ev.done ? 'line-through' : ''}>{ev.title}</span>
+                          </div>
                           {height > 30 && (
-                            <div className="truncate text-[11px] opacity-70">
+                            <div className={`truncate text-[11px] opacity-70 pl-4 ${ev.done ? 'line-through' : ''}`}>
                               {ev.start_time?.slice(0, 5)} - {ev.end_time?.slice(0, 5)}
                             </div>
                           )}

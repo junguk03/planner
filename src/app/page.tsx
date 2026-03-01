@@ -225,6 +225,13 @@ export default function Home() {
     fetchEvents();
   };
 
+  const toggleDone = async (eventId: string) => {
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    await supabase.from('events').update({ done: !event.done }).eq('id', eventId);
+    fetchEvents();
+  };
+
   const copyEvent = async (event: Event, newDate: string, newStartTime?: string) => {
     if (!user) return;
 
@@ -518,6 +525,7 @@ export default function Home() {
             setMultiDates([]);
             setModal({ open: true, event, date: event.date });
           }}
+          onToggleDone={toggleDone}
           onMoveEvent={moveEvent}
           onCopyEvent={copyEvent}
         />
@@ -533,6 +541,7 @@ export default function Home() {
           onEventClick={(event) => {
             setModal({ open: true, event, date: event.date });
           }}
+          onToggleDone={toggleDone}
           onMoveEvent={moveEvent}
           onCopyEvent={copyEvent}
         />
