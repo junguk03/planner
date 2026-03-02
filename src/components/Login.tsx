@@ -6,6 +6,9 @@ import { supabase } from '@/lib/supabase';
 export default function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(
+    typeof window !== 'undefined' && localStorage.getItem('rememberMe') === 'true'
+  );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -22,6 +25,12 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
     if (error) {
       setError('로그인 실패: 이메일 또는 비밀번호를 확인하세요');
     } else {
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+      } else {
+        localStorage.removeItem('rememberMe');
+        sessionStorage.setItem('activeSession', 'true');
+      }
       onLogin();
     }
     setLoading(false);
@@ -52,7 +61,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
           />
         </div>
 
-        <div className="mb-6">
+        <div className="mb-4">
           <label className="mb-1 block text-sm text-muted">비밀번호</label>
           <input
             type="password"
@@ -62,6 +71,16 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
             required
           />
         </div>
+
+        <label className="mb-6 flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          <span className="text-sm text-muted">자동 로그인</span>
+        </label>
 
         <button
           type="submit"

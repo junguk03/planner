@@ -40,8 +40,16 @@ export default function Home() {
 
   // Check auth
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
+        const remembered = localStorage.getItem('rememberMe') === 'true';
+        const activeSession = sessionStorage.getItem('activeSession') === 'true';
+        if (!remembered && !activeSession) {
+          // Not remembered and no active session → sign out
+          await supabase.auth.signOut();
+          setLoading(false);
+          return;
+        }
         setUser({ id: session.user.id, email: session.user.email! });
       }
       setLoading(false);
@@ -418,6 +426,8 @@ export default function Home() {
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   const logout = async () => {
+    localStorage.removeItem('rememberMe');
+    sessionStorage.removeItem('activeSession');
     await supabase.auth.signOut();
     setUser(null);
     setEvents([]);
