@@ -101,7 +101,7 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/50" onClick={onClose}>
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={handleSubmit}
