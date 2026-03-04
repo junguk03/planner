@@ -632,14 +632,28 @@ export default function Home() {
       )}
 
       {/* Select Mode */}
-      {selectModeOpen && (
-        <SelectMode
-          events={events}
-          onClose={() => setSelectModeOpen(false)}
-          onBatchCopy={batchCopy}
-          onBatchDelete={batchDelete}
-        />
-      )}
+      {selectModeOpen && (() => {
+        let selectEvents = events;
+        if (view === 'week') {
+          const anchor = new Date(year, month, selectedDay);
+          const dow = anchor.getDay();
+          const weekDates = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(anchor);
+            d.setDate(anchor.getDate() - dow + i);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          });
+          selectEvents = events.filter((e) => weekDates.includes(e.date));
+        }
+        return (
+          <SelectMode
+            events={selectEvents}
+            weekMode={view === 'week'}
+            onClose={() => setSelectModeOpen(false)}
+            onBatchCopy={batchCopy}
+            onBatchDelete={batchDelete}
+          />
+        );
+      })()}
 
       {/* Undo Toast */}
       {undoVisible && (

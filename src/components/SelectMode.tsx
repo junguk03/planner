@@ -9,16 +9,13 @@ type CopyMode = 'weekly' | 'daily' | null;
 
 type Props = {
   events: Event[];
+  weekMode?: boolean;
   onClose: () => void;
   onBatchCopy: (events: Event[], mode: 'weekly' | 'daily', options: { startDate?: string; endDate?: string; targetDate?: string }) => void;
   onBatchDelete: (events: Event[]) => void;
 };
 
-function fmtDate(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete }: Props) {
+export default function SelectMode({ events, weekMode = false, onClose, onBatchCopy, onBatchDelete }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copyMode, setCopyMode] = useState<CopyMode>(null);
   const [startDate, setStartDate] = useState('');
@@ -26,33 +23,46 @@ export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete
   const [targetDate, setTargetDate] = useState('');
   const [copying, setCopying] = useState(false);
 
-  // Group events by day of week
-  const eventsByDay = new Map<number, Event[]>();
-  events.forEach((ev) => {
-    const d = new Date(ev.date + 'T00:00:00');
-    const dow = d.getDay();
-    if (!eventsByDay.has(dow)) eventsByDay.set(dow, []);
-    eventsByDay.get(dow)!.push(ev);
-  });
+  // ── Week mode: group by actual date, no dedup ──────────────────────────────
+  const weekGroups = (() => {
+    if (!weekMode) return null;
+    const map = new Map<string, Event[]>(); // date string → events
+    events.forEach((ev) => {
+      if (!map.has(ev.date)) map.set(ev.date, []);
+      map.get(ev.date)!.push(ev);
+    });
+    // Sort dates Sun→Sat
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  })();
 
-  // Deduplicate: same title + same time on same weekday → show once
-  const uniqueEvents = new Map<string, Event>();
-  events.forEach((ev) => {
-    const d = new Date(ev.date + 'T00:00:00');
-    const dow = d.getDay();
-    const key = `${dow}-${ev.title}-${ev.start_time || ''}-${ev.end_time || ''}`;
-    if (!uniqueEvents.has(key)) {
-      uniqueEvents.set(key, ev);
-    }
-  });
+  const weekTotalCount = events.length;
 
-  const groupedUnique = new Map<number, { key: string; event: Event }[]>();
-  uniqueEvents.forEach((ev, key) => {
-    const dow = parseInt(key.split('-')[0]);
-    if (!groupedUnique.has(dow)) groupedUnique.set(dow, []);
-    groupedUnique.get(dow)!.push({ key, event: ev });
-  });
+  // ── Month mode: dedup by weekday + title + time ───────────────────────────
+  const uniqueEvents = (() => {
+    if (weekMode) return new Map<string, Event>();
+    const map = new Map<string, Event>();
+    events.forEach((ev) => {
+      const dow = new Date(ev.date + 'T00:00:00').getDay();
+      const key = `${dow}-${ev.title}-${ev.start_time || ''}-${ev.end_time || ''}`;
+      if (!map.has(key)) map.set(key, ev);
+    });
+    return map;
+  })();
 
+  const groupedUnique = (() => {
+    if (weekMode) return new Map<number, { key: string; event: Event }[]>();
+    const map = new Map<number, { key: string; event: Event }[]>();
+    uniqueEvents.forEach((ev, key) => {
+      const dow = parseInt(key.split('-')[0]);
+      if (!map.has(dow)) map.set(dow, []);
+      map.get(dow)!.push({ key, event: ev });
+    });
+    return map;
+  })();
+
+  const totalCount = weekMode ? weekTotalCount : uniqueEvents.size;
+
+  // ── Selection helpers ─────────────────────────────────────────────────────
   const toggleEvent = (key: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -63,21 +73,24 @@ export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === uniqueEvents.size) {
+    if (selectedIds.size === totalCount) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(uniqueEvents.keys()));
+      if (weekMode) {
+        setSelectedIds(new Set(events.map((e) => e.id)));
+      } else {
+        setSelectedIds(new Set(uniqueEvents.keys()));
+      }
     }
   };
 
-  const selectedEvents = Array.from(selectedIds)
-    .map((key) => uniqueEvents.get(key))
-    .filter(Boolean) as Event[];
+  const selectedEvents = weekMode
+    ? events.filter((e) => selectedIds.has(e.id))
+    : (Array.from(selectedIds).map((k) => uniqueEvents.get(k)).filter(Boolean) as Event[]);
 
   const handleCopy = async () => {
     if (selectedEvents.length === 0) return;
     setCopying(true);
-
     if (copyMode === 'weekly' && startDate && endDate) {
       onBatchCopy(selectedEvents, 'weekly', { startDate, endDate });
     } else if (copyMode === 'daily' && targetDate) {
@@ -85,8 +98,35 @@ export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete
     }
   };
 
-  // Sort days starting from Monday
+  // Month mode sorted days (Mon first)
   const sortedDays = [1, 2, 3, 4, 5, 6, 0].filter((d) => groupedUnique.has(d));
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+  const renderEventRow = (key: string, event: Event) => (
+    <label
+      key={key}
+      className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
+        selectedIds.has(key) ? 'border-primary bg-primary/10' : 'border-border/50 hover:bg-card-hover'
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={selectedIds.has(key)}
+        onChange={() => toggleEvent(key)}
+        className="h-4 w-4 accent-primary"
+      />
+      <div className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: event.color }} />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-medium">{event.title}</span>
+        {event.start_time && (
+          <span className="ml-2 text-xs text-muted">
+            {event.start_time.slice(0, 5)}
+            {event.end_time ? ` - ${event.end_time.slice(0, 5)}` : ''}
+          </span>
+        )}
+      </div>
+    </label>
+  );
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" onClick={onClose}>
@@ -96,7 +136,7 @@ export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-bold">선택 모드</h2>
+          <h2 className="text-lg font-bold">선택 모드{weekMode && <span className="ml-2 text-sm font-normal text-muted">(이번 주)</span>}</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-card-hover hover:text-foreground">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -107,56 +147,63 @@ export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete
         {/* Event list */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted">복사할 이벤트를 선택하세요</span>
+            <span className="text-sm text-muted">이벤트를 선택하세요</span>
             <button onClick={toggleAll} className="text-xs text-primary hover:underline">
-              {selectedIds.size === uniqueEvents.size ? '전체 해제' : '전체 선택'}
+              {selectedIds.size === totalCount ? '전체 해제' : '전체 선택'}
             </button>
           </div>
 
-          {sortedDays.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted">표시할 이벤트가 없습니다</div>
-          ) : (
-            <div className="space-y-4">
-              {sortedDays.map((dow) => (
-                <div key={dow}>
-                  <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
-                    {DAY_NAMES[dow]}요일
-                  </div>
-                  <div className="space-y-1.5">
-                    {groupedUnique.get(dow)!
-                      .sort((a, b) => (a.event.start_time || '').localeCompare(b.event.start_time || ''))
-                      .map(({ key, event }) => (
-                        <label
-                          key={key}
-                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
-                            selectedIds.has(key) ? 'border-primary bg-primary/10' : 'border-border/50 hover:bg-card-hover'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(key)}
-                            onChange={() => toggleEvent(key)}
-                            className="h-4 w-4 accent-primary"
-                          />
-                          <div
-                            className="h-3 w-3 shrink-0 rounded-full"
-                            style={{ backgroundColor: event.color }}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-sm font-medium">{event.title}</span>
-                            {event.start_time && (
-                              <span className="ml-2 text-xs text-muted">
-                                {event.start_time.slice(0, 5)}
-                                {event.end_time ? ` - ${event.end_time.slice(0, 5)}` : ''}
-                              </span>
-                            )}
-                          </div>
-                        </label>
-                      ))}
-                  </div>
+          {/* Week mode: group by date */}
+          {weekMode && (
+            <>
+              {!weekGroups || weekGroups.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted">이번 주에 이벤트가 없습니다</div>
+              ) : (
+                <div className="space-y-4">
+                  {weekGroups.map(([date, dayEvents]) => {
+                    const d = new Date(date + 'T00:00:00');
+                    const dow = d.getDay();
+                    const label = `${d.getMonth() + 1}/${d.getDate()} (${DAY_NAMES[dow]})`;
+                    return (
+                      <div key={date}>
+                        <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
+                          {label}
+                        </div>
+                        <div className="space-y-1.5">
+                          {dayEvents
+                            .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''))
+                            .map((ev) => renderEventRow(ev.id, ev))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
+          )}
+
+          {/* Month mode: dedup by weekday */}
+          {!weekMode && (
+            <>
+              {sortedDays.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted">표시할 이벤트가 없습니다</div>
+              ) : (
+                <div className="space-y-4">
+                  {sortedDays.map((dow) => (
+                    <div key={dow}>
+                      <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
+                        {DAY_NAMES[dow]}요일
+                      </div>
+                      <div className="space-y-1.5">
+                        {groupedUnique.get(dow)!
+                          .sort((a, b) => (a.event.start_time || '').localeCompare(b.event.start_time || ''))
+                          .map(({ key, event }) => renderEventRow(key, event))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
