@@ -24,23 +24,46 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
   const [targetDate, setTargetDate] = useState('');
   const [copying, setCopying] = useState(false);
 
+  // ── Month mode: date filter ───────────────────────────────────────────────
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+  const isFiltered = !weekMode && filterFrom !== '';
+
+  // Events to display after filter (for month mode with filter active)
+  const filteredEvents = (() => {
+    if (!isFiltered) return events;
+    return events.filter((ev) => {
+      if (ev.date < filterFrom) return false;
+      if (filterTo && ev.date > filterTo) return false;
+      return true;
+    });
+  })();
+
+  // Filtered date groups (when filter is active, show individual events by date)
+  const filteredGroups = (() => {
+    if (!isFiltered) return null;
+    const map = new Map<string, Event[]>();
+    filteredEvents.forEach((ev) => {
+      if (!map.has(ev.date)) map.set(ev.date, []);
+      map.get(ev.date)!.push(ev);
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  })();
+
   // ── Week mode: group by actual date, no dedup ──────────────────────────────
   const weekGroups = (() => {
     if (!weekMode) return null;
-    const map = new Map<string, Event[]>(); // date string → events
+    const map = new Map<string, Event[]>();
     events.forEach((ev) => {
       if (!map.has(ev.date)) map.set(ev.date, []);
       map.get(ev.date)!.push(ev);
     });
-    // Sort dates Sun→Sat
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   })();
 
-  const weekTotalCount = events.length;
-
   // ── Month mode: dedup by weekday + title + time ───────────────────────────
   const uniqueEvents = (() => {
-    if (weekMode) return new Map<string, Event>();
+    if (weekMode || isFiltered) return new Map<string, Event>();
     const map = new Map<string, Event>();
     events.forEach((ev) => {
       const dow = new Date(ev.date + 'T00:00:00').getDay();
@@ -51,7 +74,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
   })();
 
   const groupedUnique = (() => {
-    if (weekMode) return new Map<number, { key: string; event: Event }[]>();
+    if (weekMode || isFiltered) return new Map<number, { key: string; event: Event }[]>();
     const map = new Map<number, { key: string; event: Event }[]>();
     uniqueEvents.forEach((ev, key) => {
       const dow = parseInt(key.split('-')[0]);
@@ -61,7 +84,11 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     return map;
   })();
 
-  const totalCount = weekMode ? weekTotalCount : uniqueEvents.size;
+  const totalCount = weekMode
+    ? events.length
+    : isFiltered
+    ? filteredEvents.length
+    : uniqueEvents.size;
 
   // ── Selection helpers ─────────────────────────────────────────────────────
   const toggleEvent = (key: string) => {
@@ -79,14 +106,16 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     } else {
       if (weekMode) {
         setSelectedIds(new Set(events.map((e) => e.id)));
+      } else if (isFiltered) {
+        setSelectedIds(new Set(filteredEvents.map((e) => e.id)));
       } else {
         setSelectedIds(new Set(uniqueEvents.keys()));
       }
     }
   };
 
-  const selectedEvents = weekMode
-    ? events.filter((e) => selectedIds.has(e.id))
+  const selectedEvents = (weekMode || isFiltered)
+    ? (weekMode ? events : filteredEvents).filter((e) => selectedIds.has(e.id))
     : (Array.from(selectedIds).map((k) => uniqueEvents.get(k)).filter(Boolean) as Event[]);
 
   const handleCopy = async () => {
@@ -195,26 +224,91 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
             </>
           )}
 
-          {/* Month mode: dedup by weekday */}
+          {/* Month mode: date filter + event list */}
           {!weekMode && (
             <>
-              {sortedDays.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted">표시할 이벤트가 없습니다</div>
-              ) : (
-                <div className="space-y-4">
-                  {sortedDays.map((dow) => (
-                    <div key={dow}>
-                      <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
-                        {DAY_NAMES[dow]}요일
-                      </div>
-                      <div className="space-y-1.5">
-                        {groupedUnique.get(dow)!
-                          .sort((a, b) => (a.event.start_time || '').localeCompare(b.event.start_time || ''))
-                          .map(({ key, event }) => renderEventRow(key, event))}
-                      </div>
-                    </div>
-                  ))}
+              {/* Date filter */}
+              <div className="mb-4 rounded-lg border border-border/60 bg-card-hover/40 px-3 py-3">
+                <div className="mb-2 text-xs font-medium text-muted">날짜 필터</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={filterFrom}
+                    onChange={(e) => { setFilterFrom(e.target.value); setSelectedIds(new Set()); }}
+                    className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+                  />
+                  <span className="text-xs text-muted">~</span>
+                  <input
+                    type="date"
+                    value={filterTo}
+                    onChange={(e) => { setFilterTo(e.target.value); setSelectedIds(new Set()); }}
+                    className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+                  />
+                  {filterFrom && (
+                    <button
+                      onClick={() => { setFilterFrom(''); setFilterTo(''); setSelectedIds(new Set()); }}
+                      className="shrink-0 rounded-md p-1 text-muted hover:text-foreground"
+                      title="필터 초기화"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
+              </div>
+
+              {/* Filtered: individual events by date */}
+              {isFiltered && (
+                <>
+                  {!filteredGroups || filteredGroups.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted">해당 날짜에 이벤트가 없습니다</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {filteredGroups.map(([date, dayEvents]) => {
+                        const d = new Date(date + 'T00:00:00');
+                        const dow = d.getDay();
+                        const label = `${d.getMonth() + 1}/${d.getDate()} (${DAY_NAMES[dow]})`;
+                        return (
+                          <div key={date}>
+                            <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
+                              {label}
+                            </div>
+                            <div className="space-y-1.5">
+                              {dayEvents
+                                .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''))
+                                .map((ev) => renderEventRow(ev.id, ev))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Unfiltered: dedup by weekday */}
+              {!isFiltered && (
+                <>
+                  {sortedDays.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted">표시할 이벤트가 없습니다</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {sortedDays.map((dow) => (
+                        <div key={dow}>
+                          <div className={`mb-2 text-sm font-medium ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : 'text-muted'}`}>
+                            {DAY_NAMES[dow]}요일
+                          </div>
+                          <div className="space-y-1.5">
+                            {groupedUnique.get(dow)!
+                              .sort((a, b) => (a.event.start_time || '').localeCompare(b.event.start_time || ''))
+                              .map(({ key, event }) => renderEventRow(key, event))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
