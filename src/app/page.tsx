@@ -651,6 +651,11 @@ export default function Home() {
             onClose={() => setSelectModeOpen(false)}
             onBatchCopy={batchCopy}
             onBatchDelete={batchDelete}
+            onEditEvent={(event) => {
+              setSelectModeOpen(false);
+              setMultiDates([]);
+              setModal({ open: true, event, date: event.date });
+            }}
           />
         );
       })()}

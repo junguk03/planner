@@ -13,9 +13,10 @@ type Props = {
   onClose: () => void;
   onBatchCopy: (events: Event[], mode: 'weekly' | 'daily', options: { startDate?: string; endDate?: string; targetDate?: string }) => void;
   onBatchDelete: (events: Event[]) => void;
+  onEditEvent: (event: Event) => void;
 };
 
-export default function SelectMode({ events, weekMode = false, onClose, onBatchCopy, onBatchDelete }: Props) {
+export default function SelectMode({ events, weekMode = false, onClose, onBatchCopy, onBatchDelete, onEditEvent }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copyMode, setCopyMode] = useState<CopyMode>(null);
   const [startDate, setStartDate] = useState('');
@@ -103,8 +104,9 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
 
   // ── Render helpers ────────────────────────────────────────────────────────
   const renderEventRow = (key: string, event: Event) => (
-    <label
+    <div
       key={key}
+      onClick={() => toggleEvent(key)}
       className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
         selectedIds.has(key) ? 'border-primary bg-primary/10' : 'border-border/50 hover:bg-card-hover'
       }`}
@@ -113,7 +115,8 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
         type="checkbox"
         checked={selectedIds.has(key)}
         onChange={() => toggleEvent(key)}
-        className="h-4 w-4 accent-primary"
+        onClick={(e) => e.stopPropagation()}
+        className="h-4 w-4 shrink-0 accent-primary"
       />
       <div className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: event.color }} />
       <div className="min-w-0 flex-1">
@@ -125,7 +128,17 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
           </span>
         )}
       </div>
-    </label>
+      <button
+        onClick={(e) => { e.stopPropagation(); onEditEvent(event); }}
+        className="shrink-0 rounded-md p-1.5 text-muted transition-colors hover:bg-card-hover hover:text-foreground"
+        title="수정"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+      </button>
+    </div>
   );
 
   return (
