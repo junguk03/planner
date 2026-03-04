@@ -11,13 +11,14 @@ type Props = {
   events: Event[];
   onClose: () => void;
   onBatchCopy: (events: Event[], mode: 'weekly' | 'daily', options: { startDate?: string; endDate?: string; targetDate?: string }) => void;
+  onBatchDelete: (events: Event[]) => void;
 };
 
 function fmtDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function SelectMode({ events, onClose, onBatchCopy }: Props) {
+export default function SelectMode({ events, onClose, onBatchCopy, onBatchDelete }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copyMode, setCopyMode] = useState<CopyMode>(null);
   const [startDate, setStartDate] = useState('');
@@ -159,10 +160,26 @@ export default function SelectMode({ events, onClose, onBatchCopy }: Props) {
           )}
         </div>
 
-        {/* Copy mode selection */}
+        {/* Actions */}
         {selectedIds.size > 0 && (
           <div className="border-t border-border px-6 py-4">
-            <div className="mb-3 text-sm font-medium">{selectedIds.size}개 선택됨 - 복사 방식</div>
+            <div className="mb-3 text-sm font-medium">{selectedIds.size}개 선택됨</div>
+
+            {/* Delete */}
+            <button
+              onClick={() => onBatchDelete(selectedEvents)}
+              className="mb-3 w-full rounded-lg border border-danger/40 bg-danger/10 py-2.5 text-sm font-medium text-danger transition-colors hover:bg-danger/20"
+            >
+              선택 삭제
+            </button>
+
+            {/* Divider */}
+            <div className="mb-3 flex items-center gap-2 text-xs text-muted">
+              <div className="flex-1 border-t border-border" />
+              복사 방식
+              <div className="flex-1 border-t border-border" />
+            </div>
+
             <div className="flex gap-2">
               <button
                 onClick={() => setCopyMode('weekly')}
@@ -226,7 +243,7 @@ export default function SelectMode({ events, onClose, onBatchCopy }: Props) {
               </div>
             )}
 
-            {/* Confirm */}
+            {/* Confirm copy */}
             {copyMode && (
               <button
                 onClick={handleCopy}

@@ -37,6 +37,9 @@ export default function Home() {
   const [pinnedMemoIds, setPinnedMemoIds] = useState<string[]>([]);
   const [selectModeOpen, setSelectModeOpen] = useState(false);
   const [multiDates, setMultiDates] = useState<string[]>([]);
+  const [undoStack, setUndoStack] = useState<Event[][]>([]);
+  const [undoVisible, setUndoVisible] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Check auth
   useEffect(() => {
@@ -422,6 +425,41 @@ export default function Home() {
     setSelectModeOpen(false);
   };
 
+  const batchDelete = async (selectedEvents: Event[]) => {
+    if (!user || selectedEvents.length === 0) return;
+    const ids = selectedEvents.map((e) => e.id);
+    await supabase.from('events').delete().in('id', ids);
+    fetchEvents();
+    setSelectModeOpen(false);
+
+    // Push to undo stack and show toast
+    setUndoStack((prev) => [...prev, selectedEvents]);
+    setUndoVisible(true);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoVisible(false), 5000);
+  };
+
+  const undoDelete = async () => {
+    if (!user || undoStack.length === 0) return;
+    const last = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setUndoVisible(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+
+    const inserts = last.map((ev) => ({
+      user_id: user.id,
+      title: ev.title,
+      description: ev.description,
+      date: ev.date,
+      start_time: ev.start_time,
+      end_time: ev.end_time,
+      color: ev.color,
+      done: ev.done,
+    }));
+    await supabase.from('events').insert(inserts);
+    fetchEvents();
+  };
+
   const fmtDateUtil = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -599,7 +637,29 @@ export default function Home() {
           events={events}
           onClose={() => setSelectModeOpen(false)}
           onBatchCopy={batchCopy}
+          onBatchDelete={batchDelete}
         />
+      )}
+
+      {/* Undo Toast */}
+      {undoVisible && (
+        <div className="fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border bg-card px-5 py-3 shadow-xl">
+          <span className="text-sm text-foreground">이벤트가 삭제되었습니다</span>
+          <button
+            onClick={undoDelete}
+            className="rounded-lg bg-primary px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+          >
+            되돌리기
+          </button>
+          <button
+            onClick={() => setUndoVisible(false)}
+            className="rounded-lg p-1 text-muted hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* Sidebar */}
