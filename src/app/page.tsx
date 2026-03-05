@@ -388,8 +388,11 @@ export default function Home() {
         while (cursor <= end) {
           if (cursor.getDay() === evDow) {
             const dateStr = fmtDateUtil(cursor);
-            // Skip if same as original date
-            if (dateStr !== ev.date) {
+            // Skip if same as original date or already exists
+            const alreadyExists = events.some(
+              (ex) => ex.date === dateStr && ex.title === ev.title && ex.start_time === ev.start_time
+            );
+            if (dateStr !== ev.date && !alreadyExists) {
               inserts.push({
                 user_id: user.id,
                 title: ev.title,
