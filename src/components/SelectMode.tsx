@@ -128,6 +128,23 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     }
   };
 
+  // ── Deduplication ─────────────────────────────────────────────────────────
+  const getDuplicates = (): Event[] => {
+    const base = isFiltered ? filteredEvents : events;
+    const sorted = [...base].sort((a, b) => a.date.localeCompare(b.date));
+    const seen = new Set<string>();
+    const duplicates: Event[] = [];
+    for (const ev of sorted) {
+      const key = `${ev.date}-${ev.title}-${ev.start_time || ''}`;
+      if (seen.has(key)) {
+        duplicates.push(ev);
+      } else {
+        seen.add(key);
+      }
+    }
+    return duplicates;
+  };
+
   // Month mode sorted days (Mon first)
   const sortedDays = [1, 2, 3, 4, 5, 6, 0].filter((d) => groupedUnique.has(d));
 
@@ -256,6 +273,23 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
                     </button>
                   )}
                 </div>
+                {filterFrom && (() => {
+                  const dupes = getDuplicates();
+                  return dupes.length > 0 ? (
+                    <button
+                      onClick={() => {
+                        if (confirm(`중복 이벤트 ${dupes.length}개를 삭제할까요? (각 날짜·제목·시간 기준으로 첫 번째만 남깁니다)`)) {
+                          onBatchDelete(dupes);
+                        }
+                      }}
+                      className="mt-2 w-full rounded-lg border border-warning/40 bg-warning/10 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning/20"
+                    >
+                      중복 없애기 ({dupes.length}개 발견)
+                    </button>
+                  ) : (
+                    <div className="mt-2 text-center text-xs text-muted">중복 없음</div>
+                  );
+                })()}
               </div>
 
               {/* Filtered: individual events by date */}
