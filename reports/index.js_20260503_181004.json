@@ -1,0 +1,25 @@
+{
+  "analyzed_file": "./node_modules/queue-microtask/index.js",
+  "analyzed_at": "2026-05-03T18:10:04.736097",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 코드는 `queueMicrotask`의 크로스-플랫폼 구현을 제공하는 유틸리티 모듈입니다. 코드는 외부 입력을 직접 처리하거나 위험한 시스템 작업을 수행하지 않습니다. 콜백 함수(`cb`)를 인수로 받아 마이크로태스크로 스케줄링하는 역할을 합니다. 이 과정에서 새로운 취약점을 유발하는 방식으로 인수를 조작하거나 실행하지 않습니다. 따라서 현재 코드 자체에서는 명확한 보안 취약점이 발견되지 않았습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "other"
+      ],
+      "purpose": "Provides a cross-platform polyfill/wrapper for scheduling microtasks.",
+      "calls": [
+        "queueMicrotask",
+        "Promise.resolve",
+        "Promise.then",
+        "Promise.catch",
+        "setTimeout"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 코드는 `queueMicrotask`의 크로스-플랫폼 구현을 제공하는 유틸리티 모듈입니다. 코드는 외부 입력을 직접 처리하거나 위험한 시스템 작업을 수행하지 않습니다. 콜백 함수(`cb`)를 인수로 받아 마이크로태스크로 스케줄링하는 역할을 합니다. 이 과정에서 새로운 취약점을 유발하는 방식으로 인수를 조작하거나 실행하지 않습니다. 따라서 현재 코드 자체에서는 명확한 보안 취약점이 발견되지 않았습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\"other\"],\n    \"purpose\": \"Provides a cross-platform polyfill/wrapper for scheduling microtasks.\",\n    \"calls\": [\"queueMicrotask\", \"Promise.resolve\", \"Promise.then\", \"Promise.catch\", \"setTimeout\"],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

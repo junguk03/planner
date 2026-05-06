@@ -1,0 +1,29 @@
+{
+  "analyzed_file": "./node_modules/tinyglobby/node_modules/picomatch/index.js",
+  "analyzed_at": "2026-05-03T18:11:16.760918",
+  "result": {
+    "vulnerabilities": [
+      {
+        "cwe_id": "CWE-665",
+        "cwe_name": "Improper Initialization",
+        "severity": "MEDIUM",
+        "line_number": 8,
+        "vulnerable_code": "Object.assign(picomatch, pico);",
+        "description": "이 코드는 `picomatch` 변수가 정의되지 않은 상태에서 사용하려고 시도합니다. JavaScript의 엄격 모드(`'use strict'`)에서는 이는 `ReferenceError`를 발생시켜 스크립트 실행을 중단시킵니다. 이 모듈을 로드하려는 모든 애플리케이션은 시작되지 않거나 런타임에 충돌하여, 의도하지 않은 서비스 거부(Denial of Service) 상태를 초래할 수 있습니다. 이는 기본적인 기능 오류이며 애플리케이션의 안정성과 가용성을 저해합니다.",
+        "fix": "`picomatch` 변수를 `Object.assign` 호출 전에 명시적으로 정의하고 초기화해야 합니다. 코드의 맥락상 `picomatch`가 `pico` 모듈의 내용을 담는 최종 내보내기 객체가 되도록 의도된 것으로 보입니다. 가장 직접적인 해결책은 `picomatch`를 빈 객체로 초기화하고 `pico`의 속성을 복사하는 것입니다.\n\n**수정 예시:**\n```javascript\n'use strict';\n\nconst pico = require('./lib/picomatch');\nconst utils = require('./lib/utils');\n\n// picomatch 변수를 빈 객체로 초기화하고 pico의 속성을 복사합니다.\nconst picomatch = {};\nObject.assign(picomatch, pico);\nmodule.exports = picomatch;\n```"
+      },
+      {
+        "cwe_id": "CWE-703",
+        "cwe_name": "Improper Check or Handling of Exceptional Conditions",
+        "severity": "HIGH",
+        "line_number": 4,
+        "vulnerable_code": "Object.assign(picomatch, pico);",
+        "flow": "__module__ (모듈 초기화) → picomatch (래퍼 함수) 사용 불가",
+        "description": "`__module__`에서 `Object.assign(picomatch, pico);` 구문을 통해 `picomatch` 변수에 `pico` 기능을 확장하려고 시도하나, `picomatch` 변수가 해당 스코프에서 정의되지 않아 `ReferenceError`가 발생합니다. 이 오류는 모듈 로딩을 방해하며, 결과적으로 `index.js` 모듈을 `require`하는 다른 부분에서 `picomatch` 래퍼 함수(line 6에 정의된)를 올바르게 가져오거나 사용할 수 없게 됩니다. 이는 애플리케이션의 핵심 기능 중 하나가 의도한 대로 작동하지 않도록 하여 서비스 거부(Denial of Service) 또는 예기치 않은 동작을 유발할 수 있습니다.",
+        "fix": "`picomatch` 래퍼 함수와 `pico` 코어 기능을 올바르게 내보내기 위해 `Object.assign`을 사용할 때, 대상 변수가 올바르게 정의되어 있어야 합니다. 일반적으로 `module.exports` 객체를 확장하거나, `require`된 `picomatch` 래퍼 함수를 별도의 변수에 할당하여 해당 변수를 확장한 후 내보내야 합니다. 현재 분석에 따르면 `picomatch` 변수가 정의되지 않았으므로, 이 변수를 적절하게 정의하거나 `module.exports`를 직접 사용하여 오류를 해결해야 합니다.\n\n**예시 수정 (모듈의 의도에 따라 변경될 수 있음):**\n```javascript\n// index.js (수정된 1-5 라인)\nconst picoCore = require('./picomatch'); // picomatch 코어 엔진으로 가정\nconst utils = require('./utils');\n\n// 이 부분에 picomatch 래퍼 함수가 정의되었다고 가정하고, 그 함수를 실제 내보낼 대상으로 사용합니다.\n// 만약 picomatch 래퍼 함수가 다른 곳에서 정의되어 require된다면:\nconst picomatchWrapper = require('./picomatch'); // picomatch 래퍼 함수로 가정\n\n// 래퍼 함수를 확장하고 내보냅니다.\nObject.assign(picomatchWrapper, picoCore);\nmodule.exports = picomatchWrapper;\n\n// 또는, picomatch 래퍼 함수 자체가 이 파일에서 정의되고 module.exports로 할당된다면:\n// (6라인부터 정의되는 picomatch 함수가 module.exports가 될 때)\n// module.exports = picomatch;\n// Object.assign(module.exports, picoCore); // 이렇게 직접 module.exports를 확장\n```"
+      }
+    ],
+    "summary": "총 2개 단위 분석 (2차 교차 흐름 포함). 2개 취약점 발견.",
+    "risk_score": 8
+  }
+}

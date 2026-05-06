@@ -296,7 +296,7 @@ export default function Home() {
         swapData.start_time = event.start_time;
         swapData.end_time = event.end_time;
       }
-      await supabase.from('events').update(swapData).eq('id', targetEvent.id);
+      await supabase.from('events').update(swapData).eq('id', targetEvent.id).eq('user_id', user!.id);
     }
 
     // Move dragged event to target position
@@ -315,7 +315,7 @@ export default function Home() {
       }
     }
 
-    await supabase.from('events').update(updateData).eq('id', eventId);
+    await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user!.id);
     fetchEvents();
   };
 

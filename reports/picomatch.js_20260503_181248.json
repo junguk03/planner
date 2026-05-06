@@ -1,0 +1,47 @@
+{
+  "analyzed_file": "./node_modules/tinyglobby/node_modules/picomatch/lib/picomatch.js",
+  "analyzed_at": "2026-05-03T18:12:48.605600",
+  "result": {
+    "vulnerabilities": [
+      {
+        "cwe_id": "CWE-1333",
+        "cwe_name": "Inefficient Regular Expression Complexity",
+        "severity": "HIGH",
+        "line_number": 214,
+        "vulnerable_code": "return new RegExp(source, opts.flags || (opts.nocase ? 'i' : ''));",
+        "description": "이 코드는 사용자로부터 입력받은 glob 패턴을 기반으로 생성된 정규식 소스 문자열(`source`)을 사용하여 `RegExp` 객체를 생성하고 실행합니다. 만약 `source` 문자열이 복잡하거나 특정 악의적인 패턴(예: 중첩된 반복자 `(a+)+`)을 포함하는 경우, 정규식 엔진이 문자열을 매칭하는 데 기하급수적으로 많은 시간이 소요될 수 있습니다. 이를 정규식 서비스 거부(ReDoS) 공격이라고 하며, 악의적인 사용자가 이러한 패턴을 입력으로 제공하면 서버의 CPU 자원을 고갈시켜 애플리케이션 또는 서비스 전체를 마비시킬 수 있습니다. `picomatch.js` 파일 자체에서 정규식 패턴을 직접 생성하지 않고 외부 `parse` 모듈에 의존하지만, 최종적으로 이 파일의 `picomatch.toRegex` 함수에서 `RegExp` 객체를 생성하고 실행하므로 ReDoS 공격의 실행 지점이 됩니다.",
+        "fix": "ReDoS 취약점의 근본적인 해결책은 `parse` 모듈에서 안전하고 효율적인 정규식 패턴을 생성하도록 보장하는 것입니다. 즉, 사용자가 제공한 glob 패턴을 정규식으로 변환하는 과정에서 잠재적으로 비효율적인 패턴(예: `(a+)+`, `(a|aa)*`)이 생성되지 않도록 해당 모듈의 로직을 강화해야 합니다.\n\n`picomatch.js` 파일 내에서 직접적인 해결책은 아니지만, `new RegExp()` 호출 전에 `source` 문자열의 안전성을 검증하는 로직을 추가하거나, 정규식 실행에 시간 제한을 두는 등의 방법을 고려할 수 있습니다. 하지만 JavaScript의 기본 `RegExp` 객체는 시간 제한 기능을 제공하지 않으므로, 이 방법은 복잡성을 증가시킵니다. 현재 코드에는 `try-catch` 블록이 존재하여 정규식 구문 오류는 처리하지만, ReDoS와 같은 성능 문제는 다루지 않습니다.\n\n**예시 (parse 모듈 수정 관점):**\n```javascript\n// picomatch.js의 toRegex 함수가 의존하는 parse 모듈 내에서 개선 필요\n// ./parse.js 파일의 glob 패턴을 정규식으로 변환하는 로직을 수정하여\n// ReDoS에 취약한 패턴 생성을 방지합니다.\n\n// 예를 들어, parse 모듈이 다음과 같이 변경되어야 합니다.\n// const safeRegex = require('safe-regex'); // 가상의 안전성 검증 라이브러리\n\n// function parse(pattern, options) {\n//   // ... glob 패턴을 정규식 소스 문자열로 변환하는 로직 ...\n//   let regexSource = buildRegexSource(pattern); // 이 함수가 안전한 패턴을 생성하도록 수정\n\n//   // 최종 생성된 regexSource가 안전한지 추가 검증 (선택 사항이지만 권장)\n//   // if (!safeRegex(regexSource)) {\n//   //   throw new Error('Unsafe regex pattern generated');\n//   // }\n\n//   return { output: regexSource, ... };\n// }\n```\n`picomatch.toRegex` 함수 자체에서는 `source`를 직접 수정하거나 복잡성을 분석하기 어렵기 때문에, 이 코드 단위에서는 `parse` 모듈의 보안 강화가 핵심입니다. 이 함수는 현재 이미 `try-catch`로 오류를 처리하고 있지만, 이는 구문 오류에 대한 것이며 ReDoS 성능 문제에 대한 직접적인 방어는 아닙니다."
+      }
+    ],
+    "summary": "이 코드는 glob 패턴을 정규식으로 변환하고 입력 문자열을 매칭하는 라이브러리입니다. 사용자로부터 받은 glob 패턴을 외부 `parse` 모듈을 통해 정규식 소스 문자열로 변환한 뒤, `new RegExp()`를 사용하여 정규식 객체를 생성합니다. 이 과정에서 `parse` 모듈이 ReDoS(정규식 서비스 거부)에 취약한 패턴을 생성할 경우, 서비스 마비로 이어질 수 있는 심각한 취약점이 발생할 가능성이 있습니다. 코드 자체는 입력 유효성 검사를 잘 수행하고 있지만, 정규식 생성 및 실행이 핵심 기능이므로 `parse` 모듈과의 상호작용 지점에서 ReDoS 위험이 높습니다.",
+    "risk_score": 8,
+    "metadata": {
+      "trust": [
+        "source",
+        "sink"
+      ],
+      "purpose": "Glob 패턴을 정규식으로 변환하고 입력 문자열이 해당 패턴과 일치하는지 테스트하는 유틸리티 함수를 제공합니다.",
+      "calls": [
+        "require('./scan')",
+        "require('./parse')",
+        "require('./utils')",
+        "require('./constants')",
+        "picomatch",
+        "picomatch.compileRe",
+        "picomatch.makeRe",
+        "picomatch.test",
+        "picomatch.matchBase",
+        "picomatch.parse",
+        "picomatch.scan",
+        "picomatch.toRegex",
+        "scan",
+        "parse",
+        "utils.toPosixSlashes",
+        "utils.basename"
+      ],
+      "suspicious": true,
+      "suspicion_reason": "사용자 입력으로부터 동적으로 정규식을 생성하고 실행하는 핵심 기능을 수행하므로, Regular Expression Denial of Service (ReDoS) 취약점에 취약할 가능성이 있습니다. 특히, glob 패턴을 정규식으로 파싱하는 로직이 외부 모듈에 위임되어 있어, 해당 모듈이 안전한 정규식 패턴을 생성한다는 보장이 없다면 보안 위험이 존재합니다."
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [\n    {\n      \"cwe_id\": \"CWE-1333\",\n      \"cwe_name\": \"Inefficient Regular Expression Complexity\",\n      \"severity\": \"HIGH\",\n      \"line_number\": 214,\n      \"vulnerable_code\": \"return new RegExp(source, opts.flags || (opts.nocase ? 'i' : ''));\",\n      \"description\": \"이 코드는 사용자로부터 입력받은 glob 패턴을 기반으로 생성된 정규식 소스 문자열(`source`)을 사용하여 `RegExp` 객체를 생성하고 실행합니다. 만약 `source` 문자열이 복잡하거나 특정 악의적인 패턴(예: 중첩된 반복자 `(a+)+`)을 포함하는 경우, 정규식 엔진이 문자열을 매칭하는 데 기하급수적으로 많은 시간이 소요될 수 있습니다. 이를 정규식 서비스 거부(ReDoS) 공격이라고 하며, 악의적인 사용자가 이러한 패턴을 입력으로 제공하면 서버의 CPU 자원을 고갈시켜 애플리케이션 또는 서비스 전체를 마비시킬 수 있습니다. `picomatch.js` 파일 자체에서 정규식 패턴을 직접 생성하지 않고 외부 `parse` 모듈에 의존하지만, 최종적으로 이 파일의 `picomatch.toRegex` 함수에서 `RegExp` 객체를 생성하고 실행하므로 ReDoS 공격의 실행 지점이 됩니다.\",\n      \"fix\": \"ReDoS 취약점의 근본적인 해결책은 `parse` 모듈에서 안전하고 효율적인 정규식 패턴을 생성하도록 보장하는 것입니다. 즉, 사용자가 제공한 glob 패턴을 정규식으로 변환하는 과정에서 잠재적으로 비효율적인 패턴(예: `(a+)+`, `(a|aa)*`)이 생성되지 않도록 해당 모듈의 로직을 강화해야 합니다.\\n\\n`picomatch.js` 파일 내에서 직접적인 해결책은 아니지만, `new RegExp()` 호출 전에 `source` 문자열의 안전성을 검증하는 로직을 추가하거나, 정규식 실행에 시간 제한을 두는 등의 방법을 고려할 수 있습니다. 하지만 JavaScript의 기본 `RegExp` 객체는 시간 제한 기능을 제공하지 않으므로, 이 방법은 복잡성을 증가시킵니다. 현재 코드에는 `try-catch` 블록이 존재하여 정규식 구문 오류는 처리하지만, ReDoS와 같은 성능 문제는 다루지 않습니다.\\n\\n**예시 (parse 모듈 수정 관점):**\\n```javascript\\n// picomatch.js의 toRegex 함수가 의존하는 parse 모듈 내에서 개선 필요\\n// ./parse.js 파일의 glob 패턴을 정규식으로 변환하는 로직을 수정하여\\n// ReDoS에 취약한 패턴 생성을 방지합니다.\\n\\n// 예를 들어, parse 모듈이 다음과 같이 변경되어야 합니다.\\n// const safeRegex = require('safe-regex'); // 가상의 안전성 검증 라이브러리\\n\\n// function parse(pattern, options) {\\n//   // ... glob 패턴을 정규식 소스 문자열로 변환하는 로직 ...\\n//   let regexSource = buildRegexSource(pattern); // 이 함수가 안전한 패턴을 생성하도록 수정\\n\\n//   // 최종 생성된 regexSource가 안전한지 추가 검증 (선택 사항이지만 권장)\\n//   // if (!safeRegex(regexSource)) {\\n//   //   throw new Error('Unsafe regex pattern generated');\\n//   // }\\n\\n//   return { output: regexSource, ... };\\n// }\\n```\\n`picomatch.toRegex` 함수 자체에서는 `source`를 직접 수정하거나 복잡성을 분석하기 어렵기 때문에, 이 코드 단위에서는 `parse` 모듈의 보안 강화가 핵심입니다. 이 함수는 현재 이미 `try-catch`로 오류를 처리하고 있지만, 이는 구문 오류에 대한 것이며 ReDoS 성능 문제에 대한 직접적인 방어는 아닙니다.\"\n    }\n  ],\n  \"summary\": \"이 코드는 glob 패턴을 정규식으로 변환하고 입력 문자열을 매칭하는 라이브러리입니다. 사용자로부터 받은 glob 패턴을 외부 `parse` 모듈을 통해 정규식 소스 문자열로 변환한 뒤, `new RegExp()`를 사용하여 정규식 객체를 생성합니다. 이 과정에서 `parse` 모듈이 ReDoS(정규식 서비스 거부)에 취약한 패턴을 생성할 경우, 서비스 마비로 이어질 수 있는 심각한 취약점이 발생할 가능성이 있습니다. 코드 자체는 입력 유효성 검사를 잘 수행하고 있지만, 정규식 생성 및 실행이 핵심 기능이므로 `parse` 모듈과의 상호작용 지점에서 ReDoS 위험이 높습니다.\",\n  \"risk_score\": 8,\n  \"metadata\": {\n    \"trust\": [\n      \"source\",\n      \"sink\"\n    ],\n    \"purpose\": \"Glob 패턴을 정규식으로 변환하고 입력 문자열이 해당 패턴과 일치하는지 테스트하는 유틸리티 함수를 제공합니다.\",\n    \"calls\": [\n      \"require('./scan')\",\n      \"require('./parse')\",\n      \"require('./utils')\",\n      \"require('./constants')\",\n      \"picomatch\",\n      \"picomatch.compileRe\",\n      \"picomatch.makeRe\",\n      \"picomatch.test\",\n      \"picomatch.matchBase\",\n      \"picomatch.parse\",\n      \"picomatch.scan\",\n      \"picomatch.toRegex\",\n      \"scan\",\n      \"parse\",\n      \"utils.toPosixSlashes\",\n      \"utils.basename\"\n    ],\n    \"suspicious\": true,\n    \"suspicion_reason\": \"사용자 입력으로부터 동적으로 정규식을 생성하고 실행하는 핵심 기능을 수행하므로, Regular Expression Denial of Service (ReDoS) 취약점에 취약할 가능성이 있습니다. 특히, glob 패턴을 정규식으로 파싱하는 로직이 외부 모듈에 위임되어 있어, 해당 모듈이 안전한 정규식 패턴을 생성한다는 보장이 없다면 보안 위험이 존재합니다.\"\n  }\n}"
+  }
+}

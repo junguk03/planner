@@ -1,0 +1,21 @@
+{
+  "analyzed_file": "./node_modules/tinyglobby/node_modules/picomatch/posix.js",
+  "analyzed_at": "2026-05-03T18:11:23.196623",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 `posix.js` 코드는 단순히 `picomatch` 라이브러리를 다시 내보내는 역할을 합니다. 이 파일 자체에는 외부 입력을 처리하거나, 위험한 작업을 수행하거나, 복잡한 로직을 포함하지 않으므로 직접적인 보안 취약점은 발견되지 않았습니다. 이 코드의 보안 상태는 내보내는 `picomatch` 라이브러리의 보안성과 해당 라이브러리를 사용하는 상위 코드의 구현 방식에 전적으로 달려있습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "other"
+      ],
+      "purpose": "이 파일은 `picomatch` 라이브러리를 다시 내보내어 글로브 매칭 기능을 제공하는 진입점 역할을 합니다.",
+      "calls": [
+        "require"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 `posix.js` 코드는 단순히 `picomatch` 라이브러리를 다시 내보내는 역할을 합니다. 이 파일 자체에는 외부 입력을 처리하거나, 위험한 작업을 수행하거나, 복잡한 로직을 포함하지 않으므로 직접적인 보안 취약점은 발견되지 않았습니다. 이 코드의 보안 상태는 내보내는 `picomatch` 라이브러리의 보안성과 해당 라이브러리를 사용하는 상위 코드의 구현 방식에 전적으로 달려있습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\n      \"other\"\n    ],\n    \"purpose\": \"이 파일은 `picomatch` 라이브러리를 다시 내보내어 글로브 매칭 기능을 제공하는 진입점 역할을 합니다.\",\n    \"calls\": [\n      \"require\"\n    ],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

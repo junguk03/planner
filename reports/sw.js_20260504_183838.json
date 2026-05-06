@@ -1,0 +1,29 @@
+{
+  "analyzed_file": "./public/sw.js",
+  "analyzed_at": "2026-05-04T18:38:38.567470",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 서비스 워커 코드는 표준적인 네트워크 우선 캐싱 전략을 구현하고 있으며, 'supabase' URL에 대한 요청은 캐싱에서 제외합니다. 이 코드는 사용자 또는 브라우저의 요청을 중간에서 가로채고 처리하지만, 요청을 위험하게 조작하거나 악성 데이터를 캐시하는 등의 특정 취약점을 유발하는 로직은 포함하고 있지 않습니다. 따라서 이 코드 자체에서 직접적인 보안 취약점은 발견되지 않았습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "source",
+        "sink"
+      ],
+      "purpose": "This service worker implements a network-first caching strategy for web resources, skipping caching for 'supabase' related requests.",
+      "calls": [
+        "self.addEventListener",
+        "self.skipWaiting",
+        "clients.claim",
+        "event.waitUntil",
+        "event.request.url.includes",
+        "event.respondWith",
+        "fetch",
+        "caches.match"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 서비스 워커 코드는 표준적인 네트워크 우선 캐싱 전략을 구현하고 있으며, 'supabase' URL에 대한 요청은 캐싱에서 제외합니다. 이 코드는 사용자 또는 브라우저의 요청을 중간에서 가로채고 처리하지만, 요청을 위험하게 조작하거나 악성 데이터를 캐시하는 등의 특정 취약점을 유발하는 로직은 포함하고 있지 않습니다. 따라서 이 코드 자체에서 직접적인 보안 취약점은 발견되지 않았습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\n      \"source\",\n      \"sink\"\n    ],\n    \"purpose\": \"This service worker implements a network-first caching strategy for web resources, skipping caching for 'supabase' related requests.\",\n    \"calls\": [\n      \"self.addEventListener\",\n      \"self.skipWaiting\",\n      \"clients.claim\",\n      \"event.waitUntil\",\n      \"event.request.url.includes\",\n      \"event.respondWith\",\n      \"fetch\",\n      \"caches.match\"\n    ],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}
