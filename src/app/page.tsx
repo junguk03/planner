@@ -200,8 +200,7 @@ export default function Home() {
           end_time: eventData.end_time,
           color: eventData.color,
         })
-        .eq('id', eventData.id)
-        .eq('user_id', user.id);
+        .eq('id', eventData.id);
     } else if (multiDates.length > 1) {
       // Multi-date insert
       const inserts = multiDates.map((date) => ({
@@ -232,7 +231,7 @@ export default function Home() {
   };
 
   const deleteEvent = async (id: string) => {
-    await supabase.from('events').delete().eq('id', id).eq('user_id', user!.id);
+    await supabase.from('events').delete().eq('id', id);
     setModal({ open: false, event: null, date: '' });
     fetchEvents();
   };
@@ -240,7 +239,7 @@ export default function Home() {
   const toggleDone = async (eventId: string) => {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
-    await supabase.from('events').update({ done: !event.done }).eq('id', eventId).eq('user_id', user!.id);
+    await supabase.from('events').update({ done: !event.done }).eq('id', eventId);
     fetchEvents();
   };
 
@@ -296,7 +295,7 @@ export default function Home() {
         swapData.start_time = event.start_time;
         swapData.end_time = event.end_time;
       }
-      await supabase.from('events').update(swapData).eq('id', targetEvent.id).eq('user_id', user!.id);
+      await supabase.from('events').update(swapData).eq('id', targetEvent.id);
     }
 
     // Move dragged event to target position
@@ -315,7 +314,7 @@ export default function Home() {
       }
     }
 
-    await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user!.id);
+    await supabase.from('events').update(updateData).eq('id', eventId);
     fetchEvents();
   };
 
@@ -332,8 +331,7 @@ export default function Home() {
           color: memoData.color,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', memoData.id)
-        .eq('user_id', user.id);
+        .eq('id', memoData.id);
     } else {
       await supabase.from('memos').insert({
         user_id: user.id,
@@ -349,7 +347,7 @@ export default function Home() {
 
   const deleteMemo = async (id: string) => {
     setPinnedMemoIds((prev) => prev.filter((pid) => pid !== id));
-    await supabase.from('memos').delete().eq('id', id).eq('user_id', user!.id);
+    await supabase.from('memos').delete().eq('id', id);
     fetchMemos();
   };
 
