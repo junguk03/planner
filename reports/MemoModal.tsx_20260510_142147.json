@@ -1,0 +1,27 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/components/MemoModal.tsx",
+  "analyzed_at": "2026-05-10T14:21:47.500401",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 `MemoModal.tsx` 코드 유닛에서는 직접적인 보안 취약점이 발견되지 않았습니다. React의 JSX 렌더링은 사용자 입력을 자동으로 이스케이프하여 일반적인 클라이언트 측 XSS (CWE-79) 공격을 방지합니다. `dangerouslySetInnerHTML`과 같은 위험한 함수를 사용하지 않습니다. 색상 선택은 하드코딩된 안전한 값 배열 `COLORS`에서 이루어지므로, CSS 인젝션 (CWE-803)의 위험이 없습니다. 또한, 이 컴포넌트는 데이터베이스 작업을 직접 수행하지 않으며, `onSave` 콜백을 통해 데이터를 전달하는 역할을 합니다. IDOR (CWE-639)과 같은 백엔드 취약점은 `onSave` 함수의 실제 구현에서 처리되어야 할 문제입니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "source"
+      ],
+      "purpose": "This component provides a modal interface for users to create or edit memo entries, capturing title, content, and color, and then passing this data to an external save handler.",
+      "calls": [
+        "useState",
+        "setTitle",
+        "setContent",
+        "setColor",
+        "handleSave",
+        "onSave",
+        "onClose"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 `MemoModal.tsx` 코드 유닛에서는 직접적인 보안 취약점이 발견되지 않았습니다. React의 JSX 렌더링은 사용자 입력을 자동으로 이스케이프하여 일반적인 클라이언트 측 XSS (CWE-79) 공격을 방지합니다. `dangerouslySetInnerHTML`과 같은 위험한 함수를 사용하지 않습니다. 색상 선택은 하드코딩된 안전한 값 배열 `COLORS`에서 이루어지므로, CSS 인젝션 (CWE-803)의 위험이 없습니다. 또한, 이 컴포넌트는 데이터베이스 작업을 직접 수행하지 않으며, `onSave` 콜백을 통해 데이터를 전달하는 역할을 합니다. IDOR (CWE-639)과 같은 백엔드 취약점은 `onSave` 함수의 실제 구현에서 처리되어야 할 문제입니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\n      \"source\"\n    ],\n    \"purpose\": \"This component provides a modal interface for users to create or edit memo entries, capturing title, content, and color, and then passing this data to an external save handler.\",\n    \"calls\": [\n      \"useState\",\n      \"setTitle\",\n      \"setContent\",\n      \"setColor\",\n      \"handleSave\",\n      \"onSave\",\n      \"onClose\"\n    ],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

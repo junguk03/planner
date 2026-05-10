@@ -1,0 +1,23 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/app/layout.tsx",
+  "analyzed_at": "2026-05-09T22:33:43.744059",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 `layout.tsx` 코드에는 직접적인 보안 취약점이 발견되지 않았습니다. Google Analytics 스크립트와 서비스 워커 등록을 위한 `dangerouslySetInnerHTML` 사용은 모두 정적이고 하드코딩된 내용을 포함하고 있어, 외부 입력에 의한 코드 주입 위험이 없습니다. `children` 프롭을 렌더링하는 부분은 이 컴포넌트 자체에서 취약점을 유발하지 않으며, `children`의 내용이 안전하게 이스케이프되는지는 해당 `children`을 제공하는 상위/하위 컴포넌트의 책임입니다. 전체적으로, 레이아웃 정의에 초점을 맞춘 안전한 코드입니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "other"
+      ],
+      "purpose": "이 코드는 Next.js 애플리케이션의 최상위 레이아웃을 정의하며, 페이지 메타데이터, 폰트 설정, 전역 CSS, Google Analytics 추적 코드 및 서비스 워커 등록을 포함합니다.",
+      "calls": [
+        "Geist",
+        "Geist_Mono",
+        "Script"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 `layout.tsx` 코드에는 직접적인 보안 취약점이 발견되지 않았습니다. Google Analytics 스크립트와 서비스 워커 등록을 위한 `dangerouslySetInnerHTML` 사용은 모두 정적이고 하드코딩된 내용을 포함하고 있어, 외부 입력에 의한 코드 주입 위험이 없습니다. `children` 프롭을 렌더링하는 부분은 이 컴포넌트 자체에서 취약점을 유발하지 않으며, `children`의 내용이 안전하게 이스케이프되는지는 해당 `children`을 제공하는 상위/하위 컴포넌트의 책임입니다. 전체적으로, 레이아웃 정의에 초점을 맞춘 안전한 코드입니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\n      \"other\"\n    ],\n    \"purpose\": \"이 코드는 Next.js 애플리케이션의 최상위 레이아웃을 정의하며, 페이지 메타데이터, 폰트 설정, 전역 CSS, Google Analytics 추적 코드 및 서비스 워커 등록을 포함합니다.\",\n    \"calls\": [\n      \"Geist\",\n      \"Geist_Mono\",\n      \"Script\"\n    ],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

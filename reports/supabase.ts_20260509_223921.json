@@ -1,0 +1,21 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/lib/supabase.ts",
+  "analyzed_at": "2026-05-09T22:39:21.689140",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 `supabase.ts` 파일은 Supabase 클라이언트를 초기화하고 데이터 타입을 정의하는 역할을 합니다. 환경 변수에서 Supabase URL과 익명 키를 로드하여 클라이언트를 생성하며, 세션 지속성 및 토큰 자동 갱신 설정을 포함합니다. 이 코드 스니펫 자체에서는 직접적인 사용자 입력을 처리하거나, 데이터베이스 쿼리를 실행하거나, 파일 시스템/OS 명령을 조작하는 등의 위험한 작업을 수행하지 않습니다. 따라서 SQL 인젝션, XSS, 명령 인젝션과 같은 일반적인 웹 취약점은 발견되지 않았습니다. `NEXT_PUBLIC_SUPABASE_ANON_KEY`는 클라이언트 사이드에서 사용하기 위한 공개 키로 설계되었으므로, 이 키가 외부에 노출되는 것은 예상된 동작이며, 데이터 보안은 Supabase 백엔드의 RLS(Row Level Security) 설정에 의존합니다. 이 파일은 클라이언트 설정을 담당하므로, 잠재적인 취약점은 이 클라이언트를 사용하는 다른 코드에서 발생할 가능성이 더 높습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "other"
+      ],
+      "purpose": "Initializes the Supabase client and defines data types for event and memo entities.",
+      "calls": [
+        "createClient"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 `supabase.ts` 파일은 Supabase 클라이언트를 초기화하고 데이터 타입을 정의하는 역할을 합니다. 환경 변수에서 Supabase URL과 익명 키를 로드하여 클라이언트를 생성하며, 세션 지속성 및 토큰 자동 갱신 설정을 포함합니다. 이 코드 스니펫 자체에서는 직접적인 사용자 입력을 처리하거나, 데이터베이스 쿼리를 실행하거나, 파일 시스템/OS 명령을 조작하는 등의 위험한 작업을 수행하지 않습니다. 따라서 SQL 인젝션, XSS, 명령 인젝션과 같은 일반적인 웹 취약점은 발견되지 않았습니다. `NEXT_PUBLIC_SUPABASE_ANON_KEY`는 클라이언트 사이드에서 사용하기 위한 공개 키로 설계되었으므로, 이 키가 외부에 노출되는 것은 예상된 동작이며, 데이터 보안은 Supabase 백엔드의 RLS(Row Level Security) 설정에 의존합니다. 이 파일은 클라이언트 설정을 담당하므로, 잠재적인 취약점은 이 클라이언트를 사용하는 다른 코드에서 발생할 가능성이 더 높습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\"other\"],\n    \"purpose\": \"Initializes the Supabase client and defines data types for event and memo entities.\",\n    \"calls\": [\"createClient\"],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}
