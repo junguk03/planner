@@ -727,6 +727,10 @@ export default function Home() {
           onTimeClick={(date, time, endTime) => {
             setModal({ open: true, event: { start_time: time, end_time: endTime }, date });
           }}
+          onTimeRangeSelect={(dates, startTime, endTime) => {
+            setMultiDates(dates);
+            setModal({ open: true, event: { start_time: startTime, end_time: endTime }, date: dates[0] });
+          }}
           onEventClick={(event) => {
             setModal({ open: true, event, date: event.date });
           }}

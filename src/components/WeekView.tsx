@@ -13,6 +13,7 @@ type Props = {
   day: number;
   events: Event[];
   onTimeClick: (date: string, time: string, endTime?: string) => void;
+  onTimeRangeSelect: (dates: string[], startTime: string, endTime: string) => void;
   onEventClick: (event: Event) => void;
   onToggleDone: (eventId: string) => void;
   onMoveEvent: (eventId: string, newDate: string, newStartTime?: string) => void;
@@ -45,16 +46,16 @@ function timeToY(time: string) {
   return h * 60 + m;
 }
 
-export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent, onResizeFill, pasteSource, onPasteClick, onCancelPaste }: Props) {
+export default function WeekView({ year, month, day, events, onTimeClick, onTimeRangeSelect, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent, onResizeFill, pasteSource, onPasteClick, onCancelPaste }: Props) {
   const weekDates = getWeekDates(year, month, day);
   const today = new Date();
   const todayStr = formatDate(today);
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  // Range selection (left-click drag on empty cells)
-  const [rangeStart, setRangeStart] = useState<{ date: string; hour: number } | null>(null);
-  const [rangeEnd, setRangeEnd] = useState<number | null>(null);
+  // Range selection (left-click drag on empty cells) — 2D rectangle across days × hours
+  const [rangeStart, setRangeStart] = useState<{ dateIdx: number; hour: number } | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<{ dateIdx: number; hour: number } | null>(null);
   const rangeProcessed = useRef(false);
 
   // Right-click copy
@@ -168,12 +169,13 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   const getAllDayEvents = (dateStr: string) =>
     events.filter((e) => e.date === dateStr && !e.start_time);
 
-  const isInRange = (dateStr: string, hour: number) => {
-    if (!rangeStart || rangeEnd === null) return false;
-    if (dateStr !== rangeStart.date) return false;
-    const minH = Math.min(rangeStart.hour, rangeEnd);
-    const maxH = Math.max(rangeStart.hour, rangeEnd);
-    return hour >= minH && hour <= maxH;
+  const isInRange = (dateIdx: number, hour: number) => {
+    if (!rangeStart || !rangeEnd) return false;
+    const minIdx = Math.min(rangeStart.dateIdx, rangeEnd.dateIdx);
+    const maxIdx = Math.max(rangeStart.dateIdx, rangeEnd.dateIdx);
+    const minH = Math.min(rangeStart.hour, rangeEnd.hour);
+    const maxH = Math.max(rangeStart.hour, rangeEnd.hour);
+    return dateIdx >= minIdx && dateIdx <= maxIdx && hour >= minH && hour <= maxH;
   };
 
   const isCopyTarget = (cellKey: string) => copyTargetKey === cellKey;
@@ -329,7 +331,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                   return h === hour;
                 });
                 const isDragOver = dragOverCell === cellKey;
-                const inRange = isInRange(dateStr, hour);
+                const inRange = isInRange(di, hour);
                 const isCopy = isCopyTarget(cellKey);
                 const inResize = isResizeArea(dateStr, hour);
                 return (
@@ -347,31 +349,35 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                         onPasteClick?.(dateStr, `${String(hour).padStart(2, '0')}:00`);
                       }
                     }}
-                    // Range selection
+                    // Range selection (2D: across days and hours)
                     onMouseDown={(e) => {
                       if (e.button === 0 && e.target === e.currentTarget && !copySource && !pasteSource && !resizeSource) {
-                        setRangeStart({ date: dateStr, hour });
-                        setRangeEnd(hour);
+                        setRangeStart({ dateIdx: di, hour });
+                        setRangeEnd({ dateIdx: di, hour });
                       }
                     }}
                     onMouseEnter={() => {
-                      if (rangeStart && rangeStart.date === dateStr) {
-                        setRangeEnd(hour);
+                      if (rangeStart) {
+                        setRangeEnd({ dateIdx: di, hour });
                       }
                     }}
                     onMouseUp={(e) => {
-                      if (rangeStart && e.button === 0) {
-                        const startH = Math.min(rangeStart.hour, rangeEnd ?? rangeStart.hour);
-                        const endH = Math.max(rangeStart.hour, rangeEnd ?? rangeStart.hour);
+                      if (rangeStart && rangeEnd && e.button === 0) {
+                        const minIdx = Math.min(rangeStart.dateIdx, rangeEnd.dateIdx);
+                        const maxIdx = Math.max(rangeStart.dateIdx, rangeEnd.dateIdx);
+                        const minH = Math.min(rangeStart.hour, rangeEnd.hour);
+                        const maxH = Math.max(rangeStart.hour, rangeEnd.hour);
                         rangeProcessed.current = true;
-                        if (startH !== endH) {
-                          onTimeClick(
-                            rangeStart.date,
-                            `${String(startH).padStart(2, '0')}:00`,
-                            `${String(endH + 1).padStart(2, '0')}:00`
-                          );
+                        const dates: string[] = [];
+                        for (let i = minIdx; i <= maxIdx; i++) dates.push(formatDate(weekDates[i]));
+                        const startTime = `${String(minH).padStart(2, '0')}:00`;
+                        const endTime = `${String(maxH + 1).padStart(2, '0')}:00`;
+                        if (dates.length > 1) {
+                          onTimeRangeSelect(dates, startTime, endTime);
+                        } else if (minH !== maxH) {
+                          onTimeClick(dates[0], startTime, endTime);
                         } else {
-                          onTimeClick(dateStr, `${String(hour).padStart(2, '0')}:00`);
+                          onTimeClick(dates[0], startTime);
                         }
                         setRangeStart(null);
                         setRangeEnd(null);
@@ -400,8 +406,12 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                       return (
                         <div
                           key={ev.id}
-                          draggable
+                          draggable={!resizeSource}
                           onDragStart={(e) => {
+                            if (resizeSource) {
+                              e.preventDefault();
+                              return;
+                            }
                             e.dataTransfer.setData('eventId', ev.id);
                             e.dataTransfer.effectAllowed = 'move';
                             setDraggingId(ev.id);
@@ -474,6 +484,8 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                           )}
                           {/* Resize/fill handle (bottom-right) */}
                           <div
+                            draggable={false}
+                            onDragStart={(e) => e.preventDefault()}
                             onMouseDown={(e) => {
                               if (e.button !== 0) return;
                               e.preventDefault();
@@ -483,7 +495,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                               resizeTargetRef.current = { date: ev.date, hour: startHour };
                               setResizeTarget({ date: ev.date, hour: startHour });
                             }}
-                            className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize bg-white/30 hover:bg-white/60"
+                            className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-tl bg-white/80 hover:bg-white"
                             title="끌어서 채우기"
                           />
                         </div>
