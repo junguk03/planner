@@ -50,6 +50,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   const today = new Date();
   const todayStr = formatDate(today);
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // Range selection (left-click drag on empty cells)
   const [rangeStart, setRangeStart] = useState<{ date: string; hour: number } | null>(null);
@@ -232,7 +233,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                 e.preventDefault();
                 setDragOverCell(`allday-${dateStr}`);
               }}
-              onDragLeave={() => setDragOverCell(null)}
+              onDragLeave={() => setDragOverCell((prev) => (prev === `allday-${dateStr}` ? null : prev))}
               onDrop={(e) => {
                 e.preventDefault();
                 setDragOverCell(null);
@@ -248,19 +249,26 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                   onDragStart={(e) => {
                     e.dataTransfer.setData('eventId', ev.id);
                     e.dataTransfer.effectAllowed = 'move';
+                    setDraggingId(ev.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverCell(null);
                   }}
                   onDragOver={(e) => {
                     if (e.dataTransfer.types.length > 0) {
                       e.preventDefault();
-                      e.stopPropagation();
                     }
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     const sourceId = e.dataTransfer.getData('eventId');
-                    if (sourceId && sourceId !== ev.id) {
+                    if (!sourceId || sourceId === ev.id) return;
+                    if (e.shiftKey) {
                       onSwapEvents(sourceId, ev.id);
+                    } else {
+                      onMoveEvent(sourceId, ev.date); // all-day target
                     }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
@@ -272,7 +280,11 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                   }}
                   onClick={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
                   className={`flex min-w-0 cursor-grab items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
-                  style={{ backgroundColor: ev.color, pointerEvents: copySource ? 'none' : 'auto' }}
+                  style={{
+                    backgroundColor: ev.color,
+                    pointerEvents: copySource ? 'none' : 'auto',
+                    opacity: draggingId === ev.id ? 0.3 : undefined,
+                  }}
                 >
                   <input
                     type="checkbox"
@@ -325,7 +337,9 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                     key={di}
                     data-cell-date={dateStr}
                     data-cell-hour={String(hour)}
-                    className={`relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50 ${
+                    className={`relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors ${
+                      draggingId ? '' : 'hover:bg-card-hover/50'
+                    } ${
                       inResize ? 'bg-warning/30' : isDragOver || isCopy ? 'bg-primary/20' : inRange ? 'bg-success/20' : ''
                     }`}
                     onClick={(e) => {
@@ -368,7 +382,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                       e.preventDefault();
                       setDragOverCell(cellKey);
                     }}
-                    onDragLeave={() => setDragOverCell(null)}
+                    onDragLeave={() => setDragOverCell((prev) => (prev === cellKey ? null : prev))}
                     onDrop={(e) => {
                       e.preventDefault();
                       setDragOverCell(null);
@@ -390,19 +404,27 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                           onDragStart={(e) => {
                             e.dataTransfer.setData('eventId', ev.id);
                             e.dataTransfer.effectAllowed = 'move';
+                            setDraggingId(ev.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverCell(null);
                           }}
                           onDragOver={(e) => {
                             if (e.dataTransfer.types.length > 0) {
                               e.preventDefault();
-                              e.stopPropagation();
                             }
                           }}
                           onDrop={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             const sourceId = e.dataTransfer.getData('eventId');
-                            if (sourceId && sourceId !== ev.id) {
+                            if (!sourceId || sourceId === ev.id) return;
+                            if (e.shiftKey) {
                               onSwapEvents(sourceId, ev.id);
+                            } else {
+                              const hour = parseInt(ev.start_time!.split(':')[0]);
+                              onMoveEvent(sourceId, ev.date, `${String(hour).padStart(2, '0')}:00`);
                             }
                           }}
                           onContextMenu={(e) => e.preventDefault()}
@@ -421,7 +443,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                             backgroundColor: ev.color,
                             top: `${top}px`,
                             height: `${height}px`,
-                            opacity: ev.done ? 0.5 : 0.9,
+                            opacity: draggingId === ev.id ? 0.3 : ev.done ? 0.5 : 0.9,
                             pointerEvents: copySource ? 'none' : 'auto',
                           }}
                         >

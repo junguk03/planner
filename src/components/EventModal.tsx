@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Event } from '@/lib/supabase';
 
 const COLORS = [
@@ -94,6 +94,15 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
     const e = getInitialEndTime(event);
     return s ? checkConflict(date, s, e, existingEvents, event?.id) : null;
   });
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
