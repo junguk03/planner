@@ -14,10 +14,11 @@ type Props = {
   onEventClick: (event: Event) => void;
   onToggleDone: (eventId: string) => void;
   onMoveEvent: (eventId: string, newDate: string) => void;
+  onSwapEvents: (sourceId: string, targetId: string) => void;
   onCopyEvent: (event: Event, newDate: string) => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onCopyEvent }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
@@ -202,6 +203,23 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                     onDragStart={(e) => {
                       e.dataTransfer.setData('eventId', ev.id);
                       e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      const sourceId = e.dataTransfer.types.includes('text/plain') ? '' : '';
+                      // Only allow drop if a drag is in progress (dataTransfer.types is browser-managed)
+                      if (e.dataTransfer.types.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                      void sourceId;
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const sourceId = e.dataTransfer.getData('eventId');
+                      if (sourceId && sourceId !== ev.id) {
+                        onSwapEvents(sourceId, ev.id);
+                      }
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                     onMouseDown={(e) => {

@@ -88,7 +88,11 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
   const [startTime, setStartTime] = useState(event?.start_time || '');
   const [endTime, setEndTime] = useState(getInitialEndTime(event));
   const [color, setColor] = useState(event?.color || COLORS[0]);
-  const [conflict, setConflict] = useState<Event | null>(null);
+  const [conflict, setConflict] = useState<Event | null>(() => {
+    const s = event?.start_time || '';
+    const e = getInitialEndTime(event);
+    return s ? checkConflict(date, s, e, existingEvents, event?.id) : null;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

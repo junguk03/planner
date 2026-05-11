@@ -41,6 +41,9 @@ export default function Home() {
   const [undoVisible, setUndoVisible] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Time conflict modal queue (for events conflicting after move/swap)
+  const [conflictQueue, setConflictQueue] = useState<Event[]>([]);
+
   // Check auth
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -226,13 +229,22 @@ export default function Home() {
       });
     }
 
-    setModal({ open: false, event: null, date: '' });
+    // Advance conflict queue (if user just resolved one of multiple conflicts)
+    const remaining = conflictQueue.slice(1);
+    if (remaining.length > 0) {
+      setConflictQueue(remaining);
+      setModal({ open: true, event: remaining[0], date: remaining[0].date });
+    } else {
+      setConflictQueue([]);
+      setModal({ open: false, event: null, date: '' });
+    }
     setMultiDates([]);
     fetchEvents();
   };
 
   const deleteEvent = async (id: string) => {
     await supabase.from('events').delete().eq('id', id).eq('user_id', user!.id);
+    setConflictQueue([]);
     setModal({ open: false, event: null, date: '' });
     fetchEvents();
   };
@@ -271,33 +283,37 @@ export default function Home() {
     fetchEvents();
   };
 
+  // Check if a candidate event (already mutated) conflicts with any other event in `pool`
+  const findTimeConflict = (candidate: Event, pool: Event[]): Event | null => {
+    if (!candidate.start_time) return null;
+    const toMin = (t: string) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const cs = toMin(candidate.start_time);
+    const ce = candidate.end_time ? toMin(candidate.end_time) : cs + 60;
+    for (const o of pool) {
+      if (o.id === candidate.id) continue;
+      if (o.date !== candidate.date) continue;
+      if (!o.start_time) continue;
+      const os = toMin(o.start_time);
+      const oe = o.end_time ? toMin(o.end_time) : os + 60;
+      if (cs < oe && ce > os) return o;
+    }
+    return null;
+  };
+
+  // Open conflict-resolution modal for the first conflicting event in a list
+  const openConflictModal = (conflicts: Event[]) => {
+    if (conflicts.length === 0) return;
+    setConflictQueue(conflicts);
+    setModal({ open: true, event: conflicts[0], date: conflicts[0].date });
+  };
+
   const moveEvent = async (eventId: string, newDate: string, newStartTime?: string) => {
+    if (!user) return;
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
-
-    // Check if there's an event at the target position → swap
-    const targetEvent = events.find((e) => {
-      if (e.id === eventId) return false;
-      if (e.date !== newDate) return false;
-      if (newStartTime) {
-        // Week view: match by hour
-        const eHour = e.start_time ? parseInt(e.start_time.split(':')[0]) : -1;
-        const targetHour = parseInt(newStartTime.split(':')[0]);
-        return eHour === targetHour;
-      }
-      // Month view: same date (swap first found)
-      return !e.start_time && !event.start_time;
-    });
-
-    if (targetEvent) {
-      // Swap: move target to dragged event's original position
-      const swapData: Record<string, string | null> = { date: event.date };
-      if (event.start_time) {
-        swapData.start_time = event.start_time;
-        swapData.end_time = event.end_time;
-      }
-      await supabase.from('events').update(swapData).eq('id', targetEvent.id).eq('user_id', user!.id);
-    }
 
     // Move dragged event to target position
     const updateData: Record<string, string | null> = { date: newDate };
@@ -313,10 +329,52 @@ export default function Home() {
         const newEndMin = newStartMin + duration;
         updateData.end_time = `${String(Math.floor(newEndMin / 60)).padStart(2, '0')}:${String(newEndMin % 60).padStart(2, '0')}`;
       }
+    } else {
+      // Dropped onto all-day row — clear times
+      updateData.start_time = null;
+      updateData.end_time = null;
     }
 
-    await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user!.id);
-    fetchEvents();
+    await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user.id);
+    await fetchEvents();
+
+    // Conflict check (only if event has a time after move)
+    if (updateData.start_time) {
+      const moved = { ...event, ...updateData } as Event;
+      const conflict = findTimeConflict(moved, events.filter((e) => e.id !== eventId));
+      if (conflict) openConflictModal([moved]);
+    }
+  };
+
+  // Swap two events' positions (date + times)
+  const swapEvents = async (sourceId: string, targetId: string) => {
+    if (!user || sourceId === targetId) return;
+    const a = events.find((e) => e.id === sourceId);
+    const b = events.find((e) => e.id === targetId);
+    if (!a || !b) return;
+
+    const aNew: Event = { ...a, date: b.date, start_time: b.start_time, end_time: b.end_time };
+    const bNew: Event = { ...b, date: a.date, start_time: a.start_time, end_time: a.end_time };
+
+    await supabase
+      .from('events')
+      .update({ date: aNew.date, start_time: aNew.start_time, end_time: aNew.end_time })
+      .eq('id', sourceId)
+      .eq('user_id', user.id);
+    await supabase
+      .from('events')
+      .update({ date: bNew.date, start_time: bNew.start_time, end_time: bNew.end_time })
+      .eq('id', targetId)
+      .eq('user_id', user.id);
+
+    await fetchEvents();
+
+    // Check conflicts with OTHER events (excluding the two being swapped)
+    const others = events.filter((e) => e.id !== sourceId && e.id !== targetId);
+    const conflicts: Event[] = [];
+    if (findTimeConflict(aNew, others)) conflicts.push(aNew);
+    if (findTimeConflict(bNew, others)) conflicts.push(bNew);
+    if (conflicts.length > 0) openConflictModal(conflicts);
   };
 
   // Memo CRUD
@@ -580,6 +638,7 @@ export default function Home() {
           }}
           onToggleDone={toggleDone}
           onMoveEvent={moveEvent}
+          onSwapEvents={swapEvents}
           onCopyEvent={copyEvent}
         />
       ) : (
@@ -596,6 +655,7 @@ export default function Home() {
           }}
           onToggleDone={toggleDone}
           onMoveEvent={moveEvent}
+          onSwapEvents={swapEvents}
           onCopyEvent={copyEvent}
         />
       )}
@@ -623,6 +683,7 @@ export default function Home() {
           onClose={() => {
             setModal({ open: false, event: null, date: '' });
             setMultiDates([]);
+            setConflictQueue([]);
           }}
         />
       )}

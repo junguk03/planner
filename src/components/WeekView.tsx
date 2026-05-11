@@ -16,6 +16,7 @@ type Props = {
   onEventClick: (event: Event) => void;
   onToggleDone: (eventId: string) => void;
   onMoveEvent: (eventId: string, newDate: string, newStartTime?: string) => void;
+  onSwapEvents: (sourceId: string, targetId: string) => void;
   onCopyEvent: (event: Event, newDate: string, newStartTime?: string) => void;
 };
 
@@ -40,7 +41,7 @@ function timeToY(time: string) {
   return h * 60 + m;
 }
 
-export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onCopyEvent }: Props) {
+export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent }: Props) {
   const weekDates = getWeekDates(year, month, day);
   const today = new Date();
   const todayStr = formatDate(today);
@@ -127,7 +128,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
-      <div className="grid grid-cols-[70px_repeat(7,1fr)] border-b border-border">
+      <div className="grid grid-cols-[70px_repeat(7,minmax(0,1fr))] border-b border-border">
         <div />
         {weekDates.map((d, i) => {
           const dateStr = formatDate(d);
@@ -150,7 +151,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
       </div>
 
       {/* All-day events */}
-      <div className="grid grid-cols-[70px_repeat(7,1fr)] border-b border-border">
+      <div className="grid grid-cols-[70px_repeat(7,minmax(0,1fr))] border-b border-border">
         <div className="flex items-center justify-center text-xs text-muted">종일</div>
         {weekDates.map((d, i) => {
           const dateStr = formatDate(d);
@@ -158,7 +159,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
           return (
             <div
               key={i}
-              className="min-h-[32px] border-l border-border/50 p-1"
+              className="flex min-h-[32px] flex-col gap-0.5 overflow-hidden border-l border-border/50 p-1"
               data-cell-date={dateStr}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -181,6 +182,20 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                     e.dataTransfer.setData('eventId', ev.id);
                     e.dataTransfer.effectAllowed = 'move';
                   }}
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.length > 0) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sourceId = e.dataTransfer.getData('eventId');
+                    if (sourceId && sourceId !== ev.id) {
+                      onSwapEvents(sourceId, ev.id);
+                    }
+                  }}
                   onContextMenu={(e) => e.preventDefault()}
                   onMouseDown={(e) => {
                     if (e.button === 2) {
@@ -189,7 +204,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                     }
                   }}
                   onClick={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
-                  className={`cursor-grab rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing flex items-center gap-1 ${ev.done ? 'opacity-50' : ''}`}
+                  className={`flex min-w-0 cursor-grab items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
                   style={{ backgroundColor: ev.color, pointerEvents: copySource ? 'none' : 'auto' }}
                 >
                   <input
@@ -219,7 +234,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
 
       {/* Time grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[70px_repeat(7,1fr)]">
+        <div className="grid grid-cols-[70px_repeat(7,minmax(0,1fr))]">
           {HOURS.map((hour) => (
             <div key={hour} className="contents">
               <div className="relative h-16 border-b border-border/30 pr-3 text-right">
@@ -302,6 +317,20 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                           onDragStart={(e) => {
                             e.dataTransfer.setData('eventId', ev.id);
                             e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragOver={(e) => {
+                            if (e.dataTransfer.types.length > 0) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const sourceId = e.dataTransfer.getData('eventId');
+                            if (sourceId && sourceId !== ev.id) {
+                              onSwapEvents(sourceId, ev.id);
+                            }
                           }}
                           onContextMenu={(e) => e.preventDefault()}
                           onMouseDown={(e) => {
