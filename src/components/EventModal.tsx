@@ -8,6 +8,28 @@ const COLORS = [
   '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
 ];
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTE_STEP = 5;
+const MINUTE_OPTIONS = Array.from(
+  { length: 60 / MINUTE_STEP },
+  (_, i) => String(i * MINUTE_STEP).padStart(2, '0'),
+);
+
+function getHour(t: string) {
+  return t ? t.split(':')[0] : '';
+}
+function getMinute(t: string) {
+  return t ? t.split(':')[1] : '';
+}
+function combineTime(h: string, m: string) {
+  if (!h && !m) return '';
+  return `${h || '00'}:${m || '00'}`;
+}
+function minuteOptionsFor(current: string) {
+  if (!current || MINUTE_OPTIONS.includes(current)) return MINUTE_OPTIONS;
+  return [...MINUTE_OPTIONS, current].sort();
+}
+
 type Props = {
   event: Partial<Event> | null;
   date: string;
@@ -141,21 +163,55 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
         <div className="mb-3 flex gap-3">
           <div className="flex-1">
             <label className="mb-1 block text-xs text-muted">시작 시간</label>
-            <input
-              type="time"
-              value={startTime}
-              onChange={(e) => handleStartChange(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
-            />
+            <div className="flex items-center gap-2">
+              <select
+                value={getHour(startTime)}
+                onChange={(e) => handleStartChange(combineTime(e.target.value, getMinute(startTime)))}
+                className="flex-1 rounded-lg border border-border bg-background px-2 py-2 text-foreground outline-none focus:border-primary"
+              >
+                <option value="">--</option>
+                {HOURS.map((h) => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-muted">:</span>
+              <select
+                value={getMinute(startTime)}
+                onChange={(e) => handleStartChange(combineTime(getHour(startTime), e.target.value))}
+                className="flex-1 rounded-lg border border-border bg-background px-2 py-2 text-foreground outline-none focus:border-primary"
+              >
+                <option value="">--</option>
+                {minuteOptionsFor(getMinute(startTime)).map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="flex-1">
             <label className="mb-1 block text-xs text-muted">종료 시간</label>
-            <input
-              type="time"
-              value={endTime}
-              onChange={(e) => handleEndChange(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
-            />
+            <div className="flex items-center gap-2">
+              <select
+                value={getHour(endTime)}
+                onChange={(e) => handleEndChange(combineTime(e.target.value, getMinute(endTime)))}
+                className="flex-1 rounded-lg border border-border bg-background px-2 py-2 text-foreground outline-none focus:border-primary"
+              >
+                <option value="">--</option>
+                {HOURS.map((h) => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-muted">:</span>
+              <select
+                value={getMinute(endTime)}
+                onChange={(e) => handleEndChange(combineTime(getHour(endTime), e.target.value))}
+                className="flex-1 rounded-lg border border-border bg-background px-2 py-2 text-foreground outline-none focus:border-primary"
+              >
+                <option value="">--</option>
+                {minuteOptionsFor(getMinute(endTime)).map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
