@@ -44,6 +44,9 @@ export default function Home() {
   // Time conflict modal queue (for events conflicting after move/swap)
   const [conflictQueue, setConflictQueue] = useState<Event[]>([]);
 
+  // Click-to-paste mode (triggered from EventModal "복사" button)
+  const [clickPasteSource, setClickPasteSource] = useState<Event | null>(null);
+
   // Check auth
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -346,6 +349,73 @@ export default function Home() {
     }
   };
 
+  // Resize/fill: drag bottom-right handle of an event in WeekView to fill a rectangle of cells.
+  // For each day in [source.date, targetDate], create/extend an event from source.start_time to (targetEndHour+1):00.
+  // Block entirely if any cell conflicts with an unrelated existing event.
+  const resizeFillEvents = async (source: Event, targetDate: string, targetEndHour: number) => {
+    if (!user || !source.start_time) return;
+
+    const sourceStartHour = parseInt(source.start_time.split(':')[0]);
+    const sourceStartMin = parseInt(source.start_time.split(':')[1]);
+
+    // Date range (inclusive)
+    const startDate = source.date < targetDate ? source.date : targetDate;
+    const endDate = source.date < targetDate ? targetDate : source.date;
+    const dates: string[] = [];
+    const cursor = new Date(startDate + 'T00:00:00');
+    const last = new Date(endDate + 'T00:00:00');
+    while (cursor <= last) {
+      dates.push(
+        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`,
+      );
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // Each filled event spans from source's start to one hour after targetEndHour (or original end if greater)
+    const endHour = Math.max(targetEndHour + 1, sourceStartHour + 1);
+    const newStart = source.start_time;
+    const newEnd = `${String(endHour).padStart(2, '0')}:${String(sourceStartMin).padStart(2, '0')}`;
+
+    // Conflict check across all target dates against unrelated events
+    const sameTitleIds = new Set(
+      events.filter((e) => e.title === source.title).map((e) => e.id),
+    );
+    for (const d of dates) {
+      const candidate: Event = { ...source, date: d, start_time: newStart, end_time: newEnd };
+      const conflict = findTimeConflict(
+        candidate,
+        events.filter((e) => !sameTitleIds.has(e.id)),
+      );
+      if (conflict) {
+        alert(`시간이 겹칩니다: ${d} ${conflict.start_time?.slice(0, 5)} "${conflict.title}"`);
+        return;
+      }
+    }
+
+    // Commit: update source itself, create/update copies on other dates
+    await supabase
+      .from('events')
+      .update({ start_time: newStart, end_time: newEnd })
+      .eq('id', source.id)
+      .eq('user_id', user.id);
+
+    const otherDates = dates.filter((d) => d !== source.date);
+    const inserts = otherDates.map((d) => ({
+      user_id: user.id,
+      title: source.title,
+      description: source.description,
+      date: d,
+      start_time: newStart,
+      end_time: newEnd,
+      color: source.color,
+    }));
+    if (inserts.length > 0) {
+      await supabase.from('events').insert(inserts);
+    }
+
+    fetchEvents();
+  };
+
   // Swap two events' positions (date + times)
   const swapEvents = async (sourceId: string, targetId: string) => {
     if (!user || sourceId === targetId) return;
@@ -640,6 +710,13 @@ export default function Home() {
           onMoveEvent={moveEvent}
           onSwapEvents={swapEvents}
           onCopyEvent={copyEvent}
+          pasteSource={clickPasteSource}
+          onPasteClick={(date) => {
+            if (!clickPasteSource) return;
+            copyEvent(clickPasteSource, date);
+            setClickPasteSource(null);
+          }}
+          onCancelPaste={() => setClickPasteSource(null)}
         />
       ) : (
         <WeekView
@@ -657,6 +734,14 @@ export default function Home() {
           onMoveEvent={moveEvent}
           onSwapEvents={swapEvents}
           onCopyEvent={copyEvent}
+          onResizeFill={resizeFillEvents}
+          pasteSource={clickPasteSource}
+          onPasteClick={(date, time) => {
+            if (!clickPasteSource) return;
+            copyEvent(clickPasteSource, date, time);
+            setClickPasteSource(null);
+          }}
+          onCancelPaste={() => setClickPasteSource(null)}
         />
       )}
 
@@ -680,6 +765,12 @@ export default function Home() {
           existingEvents={events}
           onSave={saveEvent}
           onDelete={deleteEvent}
+          onCopyMode={(ev) => {
+            setClickPasteSource(ev);
+            setModal({ open: false, event: null, date: '' });
+            setMultiDates([]);
+            setConflictQueue([]);
+          }}
           onClose={() => {
             setModal({ open: false, event: null, date: '' });
             setMultiDates([]);

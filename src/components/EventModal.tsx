@@ -37,6 +37,7 @@ type Props = {
   existingEvents: Event[];
   onSave: (event: Partial<Event>) => void;
   onDelete: (id: string) => void;
+  onCopyMode?: (event: Event) => void;
   onClose: () => void;
 };
 
@@ -82,7 +83,7 @@ function checkConflict(
   return null;
 }
 
-export default function EventModal({ event, date, multiDates, existingEvents, onSave, onDelete, onClose }: Props) {
+export default function EventModal({ event, date, multiDates, existingEvents, onSave, onDelete, onCopyMode, onClose }: Props) {
   const [title, setTitle] = useState(event?.id ? event.title || '' : '');
   const [description, setDescription] = useState(event?.id ? event.description || '' : '');
   const [startTime, setStartTime] = useState(event?.start_time || '');
@@ -262,6 +263,15 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
               className="rounded-lg bg-danger/20 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/30"
             >
               삭제
+            </button>
+          )}
+          {event?.id && onCopyMode && (
+            <button
+              type="button"
+              onClick={() => onCopyMode(event as Event)}
+              className="rounded-lg border border-border px-4 py-2 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground"
+            >
+              복사
             </button>
           )}
           <div className="flex-1" />

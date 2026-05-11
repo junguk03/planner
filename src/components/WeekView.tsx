@@ -18,6 +18,10 @@ type Props = {
   onMoveEvent: (eventId: string, newDate: string, newStartTime?: string) => void;
   onSwapEvents: (sourceId: string, targetId: string) => void;
   onCopyEvent: (event: Event, newDate: string, newStartTime?: string) => void;
+  onResizeFill: (source: Event, targetDate: string, targetEndHour: number) => void;
+  pasteSource?: Event | null;
+  onPasteClick?: (date: string, time?: string) => void;
+  onCancelPaste?: () => void;
 };
 
 function getWeekDates(year: number, month: number, day: number) {
@@ -41,7 +45,7 @@ function timeToY(time: string) {
   return h * 60 + m;
 }
 
-export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent }: Props) {
+export default function WeekView({ year, month, day, events, onTimeClick, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent, onResizeFill, pasteSource, onPasteClick, onCancelPaste }: Props) {
   const weekDates = getWeekDates(year, month, day);
   const today = new Date();
   const todayStr = formatDate(today);
@@ -57,6 +61,11 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   const [copyTargetKey, setCopyTargetKey] = useState<string | null>(null);
   const copyTargetRef = useRef<{ date: string; time?: string } | null>(null);
 
+  // Resize/fill drag (bottom-right handle on time-grid events)
+  const [resizeSource, setResizeSource] = useState<Event | null>(null);
+  const [resizeTarget, setResizeTarget] = useState<{ date: string; hour: number } | null>(null);
+  const resizeTargetRef = useRef<{ date: string; hour: number } | null>(null);
+
   // Cleanup range on global mouseup
   useEffect(() => {
     const cleanup = () => {
@@ -71,6 +80,49 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
     document.addEventListener('mouseup', cleanup);
     return () => document.removeEventListener('mouseup', cleanup);
   }, []);
+
+  // Resize/fill: track mouse target and commit on release
+  useEffect(() => {
+    if (!resizeSource) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el?.closest('[data-cell-date][data-cell-hour]') as HTMLElement | null;
+      if (cell) {
+        const date = cell.getAttribute('data-cell-date')!;
+        const hour = parseInt(cell.getAttribute('data-cell-hour')!);
+        resizeTargetRef.current = { date, hour };
+        setResizeTarget({ date, hour });
+      }
+    };
+
+    const handleUp = () => {
+      const target = resizeTargetRef.current;
+      if (target && resizeSource) {
+        onResizeFill(resizeSource, target.date, target.hour);
+      }
+      setResizeSource(null);
+      setResizeTarget(null);
+      resizeTargetRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizeSource, onResizeFill]);
+
+  // Cancel paste mode on Escape
+  useEffect(() => {
+    if (!pasteSource) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancelPaste?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pasteSource, onCancelPaste]);
 
   // Right-click copy: track mouse and handle drop
   useEffect(() => {
@@ -124,6 +176,21 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
   };
 
   const isCopyTarget = (cellKey: string) => copyTargetKey === cellKey;
+
+  // Is this cell inside the active resize-fill rectangle?
+  const isResizeArea = (dateStr: string, hour: number) => {
+    if (!resizeSource || !resizeTarget) return false;
+    const sourceStartHour = resizeSource.start_time ? parseInt(resizeSource.start_time.split(':')[0]) : 0;
+    const sourceIdx = weekDates.findIndex((d) => formatDate(d) === resizeSource.date);
+    const targetIdx = weekDates.findIndex((d) => formatDate(d) === resizeTarget.date);
+    const cellIdx = weekDates.findIndex((d) => formatDate(d) === dateStr);
+    if (sourceIdx < 0 || targetIdx < 0 || cellIdx < 0) return false;
+    const minIdx = Math.min(sourceIdx, targetIdx);
+    const maxIdx = Math.max(sourceIdx, targetIdx);
+    const minH = Math.min(sourceStartHour, resizeTarget.hour);
+    const maxH = Math.max(sourceStartHour, resizeTarget.hour);
+    return cellIdx >= minIdx && cellIdx <= maxIdx && hour >= minH && hour <= maxH;
+  };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -252,17 +319,23 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                 const isDragOver = dragOverCell === cellKey;
                 const inRange = isInRange(dateStr, hour);
                 const isCopy = isCopyTarget(cellKey);
+                const inResize = isResizeArea(dateStr, hour);
                 return (
                   <div
                     key={di}
                     data-cell-date={dateStr}
                     data-cell-hour={String(hour)}
                     className={`relative h-16 cursor-pointer border-b border-l border-border/30 transition-colors hover:bg-card-hover/50 ${
-                      isDragOver || isCopy ? 'bg-primary/20' : inRange ? 'bg-success/20' : ''
+                      inResize ? 'bg-warning/30' : isDragOver || isCopy ? 'bg-primary/20' : inRange ? 'bg-success/20' : ''
                     }`}
+                    onClick={(e) => {
+                      if (pasteSource && e.target === e.currentTarget) {
+                        onPasteClick?.(dateStr, `${String(hour).padStart(2, '0')}:00`);
+                      }
+                    }}
                     // Range selection
                     onMouseDown={(e) => {
-                      if (e.button === 0 && e.target === e.currentTarget && !copySource) {
+                      if (e.button === 0 && e.target === e.currentTarget && !copySource && !pasteSource && !resizeSource) {
                         setRangeStart({ date: dateStr, hour });
                         setRangeEnd(hour);
                       }
@@ -377,6 +450,20 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
                               {ev.start_time?.slice(0, 5)} - {ev.end_time?.slice(0, 5)}
                             </div>
                           )}
+                          {/* Resize/fill handle (bottom-right) */}
+                          <div
+                            onMouseDown={(e) => {
+                              if (e.button !== 0) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setResizeSource(ev);
+                              const startHour = parseInt(ev.start_time!.split(':')[0]);
+                              resizeTargetRef.current = { date: ev.date, hour: startHour };
+                              setResizeTarget({ date: ev.date, hour: startHour });
+                            }}
+                            className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize bg-white/30 hover:bg-white/60"
+                            title="끌어서 채우기"
+                          />
                         </div>
                       );
                     })}
@@ -392,6 +479,22 @@ export default function WeekView({ year, month, day, events, onTimeClick, onEven
       {copySource && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-lg">
           복사 중: {copySource.title}
+        </div>
+      )}
+
+      {/* Click-paste mode indicator */}
+      {pasteSource && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-lg">
+          <span>복사할 위치를 클릭하세요: {pasteSource.title}</span>
+          <button
+            onClick={() => onCancelPaste?.()}
+            className="rounded p-1 hover:bg-white/20"
+            title="취소 (ESC)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
     </div>

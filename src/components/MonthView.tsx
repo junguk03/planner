@@ -16,9 +16,12 @@ type Props = {
   onMoveEvent: (eventId: string, newDate: string) => void;
   onSwapEvents: (sourceId: string, targetId: string) => void;
   onCopyEvent: (event: Event, newDate: string) => void;
+  pasteSource?: Event | null;
+  onPasteClick?: (date: string) => void;
+  onCancelPaste?: () => void;
 };
 
-export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent }: Props) {
+export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent, pasteSource, onPasteClick, onCancelPaste }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
@@ -138,9 +141,14 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
               key={day}
               data-month-date={dateStr}
               onMouseDown={(e) => {
-                if (e.button === 0 && e.target === e.currentTarget && !copySource) {
+                if (e.button === 0 && e.target === e.currentTarget && !copySource && !pasteSource) {
                   setRangeStartDay(day);
                   setRangeEndDay(day);
+                }
+              }}
+              onClick={(e) => {
+                if (pasteSource && e.target === e.currentTarget) {
+                  onPasteClick?.(dateStr);
                 }
               }}
               onMouseEnter={() => {
@@ -271,6 +279,22 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
       {copySource && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-lg">
           복사 중: {copySource.title}
+        </div>
+      )}
+
+      {/* Click-paste mode indicator */}
+      {pasteSource && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-lg">
+          <span>복사할 위치를 클릭하세요: {pasteSource.title}</span>
+          <button
+            onClick={() => onCancelPaste?.()}
+            className="rounded p-1 hover:bg-white/20"
+            title="취소"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
     </div>
