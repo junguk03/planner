@@ -1,0 +1,28 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/components/Login.tsx",
+  "analyzed_at": "2026-05-10T14:21:29.778139",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 Login.tsx 코드 단위는 React 컴포넌트로, 사용자 로그인, 회원가입, 비밀번호 찾기 기능을 구현합니다. 이 컴포넌트는 모든 민감한 인증 관련 작업을 Supabase 클라이언트 라이브러리에 위임하고 있습니다. 사용자 입력(이메일, 비밀번호)은 React의 상태 관리 (`useState`)를 통해 안전하게 처리되며, 출력되는 에러 및 메시지 또한 React의 기본 JSX 렌더링에 의해 자동으로 HTML 이스케이프되어 XSS (CWE-79) 취약점으로부터 안전합니다. 커스텀 데이터베이스 쿼리나 서버 측 로직이 없어 SQL Injection (CWE-89) 또는 IDOR (CWE-639)과 같은 취약점은 발견되지 않았습니다. 비밀번호 재설정 시 리다이렉션 URL도 `window.location.origin`으로 현재 도메인으로 제한되어 Open Redirect (CWE-601)의 위험이 없습니다. 따라서, 현재 코드 분석 결과 직접적인 보안 취약점은 발견되지 않았습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "source",
+        "sink"
+      ],
+      "purpose": "This component provides a user interface for login, signup, and password reset functionalities, interacting with Supabase for authentication.",
+      "calls": [
+        "useState",
+        "supabase.auth.signInWithPassword",
+        "supabase.auth.signUp",
+        "supabase.auth.resetPasswordForEmail",
+        "localStorage.setItem",
+        "localStorage.removeItem",
+        "sessionStorage.setItem"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 Login.tsx 코드 단위는 React 컴포넌트로, 사용자 로그인, 회원가입, 비밀번호 찾기 기능을 구현합니다. 이 컴포넌트는 모든 민감한 인증 관련 작업을 Supabase 클라이언트 라이브러리에 위임하고 있습니다. 사용자 입력(이메일, 비밀번호)은 React의 상태 관리 (`useState`)를 통해 안전하게 처리되며, 출력되는 에러 및 메시지 또한 React의 기본 JSX 렌더링에 의해 자동으로 HTML 이스케이프되어 XSS (CWE-79) 취약점으로부터 안전합니다. 커스텀 데이터베이스 쿼리나 서버 측 로직이 없어 SQL Injection (CWE-89) 또는 IDOR (CWE-639)과 같은 취약점은 발견되지 않았습니다. 비밀번호 재설정 시 리다이렉션 URL도 `window.location.origin`으로 현재 도메인으로 제한되어 Open Redirect (CWE-601)의 위험이 없습니다. 따라서, 현재 코드 분석 결과 직접적인 보안 취약점은 발견되지 않았습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\"source\", \"sink\"],\n    \"purpose\": \"This component provides a user interface for login, signup, and password reset functionalities, interacting with Supabase for authentication.\",\n    \"calls\": [\n      \"useState\",\n      \"supabase.auth.signInWithPassword\",\n      \"supabase.auth.signUp\",\n      \"supabase.auth.resetPasswordForEmail\",\n      \"localStorage.setItem\",\n      \"localStorage.removeItem\",\n      \"sessionStorage.setItem\"\n    ],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

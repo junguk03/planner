@@ -1,0 +1,53 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/components/SelectMode.tsx",
+  "analyzed_at": "2026-05-09T22:38:22.176473",
+  "result": {
+    "vulnerabilities": [
+      {
+        "cwe_id": "CWE-79",
+        "cwe_name": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
+        "severity": "MEDIUM",
+        "line_number": 150,
+        "vulnerable_code": "<div className=\"h-3 w-3 shrink-0 rounded-full\" style={{ backgroundColor: event.color }} />",
+        "description": "`event.color` 속성값이 외부 입력(사용자 입력 또는 데이터베이스)에서 검증 없이 직접 사용됩니다. 만약 `event.color`에 악성 CSS 코드(예: `background: url(javascript:alert(1))`)가 포함되어 있다면, 이는 잠재적인 XSS(Cross-Site Scripting) 취약점으로 이어질 수 있습니다. `backgroundColor` 속성 자체는 `url()` 같은 위험한 값을 실행하지 않지만, 브라우저나 React 버전에 따라 예상치 못한 방식으로 해석되거나 다른 CSS 속성을 주입하여 페이지의 무결성을 해치고 사용자 경험을 저하시킬 가능성이 있습니다.",
+        "fix": "`event.color` 값을 허용 가능한 색상 형식(예: 헥스 코드 `#RRGGBB`, `rgb()`, `hsl()` 또는 미리 정의된 안전한 색상 이름 목록)으로 검증해야 합니다. 이 컴포넌트 내부에서 간단한 정규식을 사용하여 유효성을 검사하고, 유효하지 않은 값은 기본 색상으로 대체하거나 렌더링하지 않도록 수정할 수 있습니다.\n\n**수정 예시:**\n```typescript\n// 안전한 색상 값인지 확인하는 유틸리티 함수\nconst isValidColor = (color: string): boolean => {\n  const hexRegex = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;\n  const rgbRegex = /^rgb\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*\\)$/;\n  const rgbaRegex = /^rgba\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*(0?\\.\\d+|1)\\s*\\)$/;\n  const hslRegex = /^hsl\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}%\\s*,\\s*\\d{1,3}%\\s*\\)$/;\n  const hslaRegex = /^hsla\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}%\\s*,\\s*\\d{1,3}%\\s*,\\s*(0?\\.\\d+|1)\\s*\\)$/;\n  // 추가적으로 허용할 CSS 색상 이름 목록을 정의할 수 있습니다.\n  const namedColors = ['red', 'blue', 'green', 'black', 'white', 'transparent', 'inherit', 'initial', 'unset'];\n\n  return (\n    hexRegex.test(color) ||\n    rgbRegex.test(color) ||\n    rgbaRegex.test(color) ||\n    hslRegex.test(color) ||\n    hslaRegex.test(color) ||\n    namedColors.includes(color.toLowerCase())\n  );\n};\n\n// 렌더링 부분 수정\nconst renderEventRow = (key: string, event: Event) => (\n  <div\n    key={key}\n    onClick={() => toggleEvent(key)}\n    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${\n      selectedIds.has(key) ? 'border-primary bg-primary/10' : 'border-border/50 hover:bg-card-hover'\n    }`}\n  >\n    <input\n      type=\"checkbox\"\n      checked={selectedIds.has(key)}\n      onChange={() => toggleEvent(key)}\n      onClick={(e) => e.stopPropagation()}\n      className=\"h-4 w-4 shrink-0 accent-primary\"\n    />\n    <div\n      className=\"h-3 w-3 shrink-0 rounded-full\"\n      style={{ backgroundColor: isValidColor(event.color) ? event.color : '#9ca3af' }} // 유효하지 않으면 회색 기본값 사용\n    />\n    {/* ... 나머지 코드 ... */}\n  </div>\n);\n```"
+      }
+    ],
+    "summary": "이 React 컴포넌트는 이벤트 목록을 표시하고, 사용자가 이벤트를 선택하여 복사, 삭제, 수정 작업을 수행할 수 있도록 합니다. 이벤트 필터링 및 복사 옵션을 위한 날짜 입력 필드가 존재하며, `events` 데이터를 기반으로 UI를 렌더링합니다. 분석 결과, `event.color` 속성을 검증 없이 `style` 속성에 직접 사용하는 부분에서 잠재적인 CSS 주입 또는 XSS 취약점이 발견되었습니다. 날짜 입력은 `<input type=\"date\">`를 통해 형식적으로 제한되지만, 콜백 함수(`onBatchCopy`, `onBatchDelete`)에 전달되기 전에 해당 값의 추가적인 검증이 필요할 수 있습니다.",
+    "risk_score": 5,
+    "metadata": {
+      "trust": [
+        "source"
+      ],
+      "purpose": "This React component allows users to select, filter, and batch manage (copy, delete, edit) events displayed from a list.",
+      "calls": [
+        "useState",
+        "Date",
+        "Set",
+        "Map",
+        "Array.from",
+        "localeCompare",
+        "parseInt",
+        "filter",
+        "map",
+        "sort",
+        "forEach",
+        "has",
+        "get",
+        "set",
+        "push",
+        "delete",
+        "add",
+        "slice",
+        "confirm",
+        "onClose",
+        "onBatchCopy",
+        "onBatchDelete",
+        "onEditEvent"
+      ],
+      "suspicious": true,
+      "suspicion_reason": "The `event.color` property is used directly in a React `style` attribute without proper validation, potentially allowing CSS injection or XSS if the color value is untrusted and malformed."
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [\n    {\n      \"cwe_id\": \"CWE-79\",\n      \"cwe_name\": \"Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')\",\n      \"severity\": \"MEDIUM\",\n      \"line_number\": 150,\n      \"vulnerable_code\": \"<div className=\\\"h-3 w-3 shrink-0 rounded-full\\\" style={{ backgroundColor: event.color }} />\",\n      \"description\": \"`event.color` 속성값이 외부 입력(사용자 입력 또는 데이터베이스)에서 검증 없이 직접 사용됩니다. 만약 `event.color`에 악성 CSS 코드(예: `background: url(javascript:alert(1))`)가 포함되어 있다면, 이는 잠재적인 XSS(Cross-Site Scripting) 취약점으로 이어질 수 있습니다. `backgroundColor` 속성 자체는 `url()` 같은 위험한 값을 실행하지 않지만, 브라우저나 React 버전에 따라 예상치 못한 방식으로 해석되거나 다른 CSS 속성을 주입하여 페이지의 무결성을 해치고 사용자 경험을 저하시킬 가능성이 있습니다.\",\n      \"fix\": \"`event.color` 값을 허용 가능한 색상 형식(예: 헥스 코드 `#RRGGBB`, `rgb()`, `hsl()` 또는 미리 정의된 안전한 색상 이름 목록)으로 검증해야 합니다. 이 컴포넌트 내부에서 간단한 정규식을 사용하여 유효성을 검사하고, 유효하지 않은 값은 기본 색상으로 대체하거나 렌더링하지 않도록 수정할 수 있습니다.\\n\\n**수정 예시:**\\n```typescript\\n// 안전한 색상 값인지 확인하는 유틸리티 함수\\nconst isValidColor = (color: string): boolean => {\\n  const hexRegex = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;\\n  const rgbRegex = /^rgb\\\\(\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}\\\\s*\\\\)$/;\\n  const rgbaRegex = /^rgba\\\\(\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}\\\\s*,\\\\s*(0?\\\\.\\\\d+|1)\\\\s*\\\\)$/;\\n  const hslRegex = /^hsl\\\\(\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}%\\\\s*,\\\\s*\\\\d{1,3}%\\\\s*\\\\)$/;\\n  const hslaRegex = /^hsla\\\\(\\\\s*\\\\d{1,3}\\\\s*,\\\\s*\\\\d{1,3}%\\\\s*,\\\\s*\\\\d{1,3}%\\\\s*,\\\\s*(0?\\\\.\\\\d+|1)\\\\s*\\\\)$/;\\n  // 추가적으로 허용할 CSS 색상 이름 목록을 정의할 수 있습니다.\\n  const namedColors = ['red', 'blue', 'green', 'black', 'white', 'transparent', 'inherit', 'initial', 'unset'];\\n\\n  return (\\n    hexRegex.test(color) ||\\n    rgbRegex.test(color) ||\\n    rgbaRegex.test(color) ||\\n    hslRegex.test(color) ||\\n    hslaRegex.test(color) ||\\n    namedColors.includes(color.toLowerCase())\\n  );\\n};\\n\\n// 렌더링 부분 수정\\nconst renderEventRow = (key: string, event: Event) => (\\n  <div\\n    key={key}\\n    onClick={() => toggleEvent(key)}\\n    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${\\n      selectedIds.has(key) ? 'border-primary bg-primary/10' : 'border-border/50 hover:bg-card-hover'\\n    }`}\\n  >\\n    <input\\n      type=\\\"checkbox\\\"\\n      checked={selectedIds.has(key)}\\n      onChange={() => toggleEvent(key)}\\n      onClick={(e) => e.stopPropagation()}\\n      className=\\\"h-4 w-4 shrink-0 accent-primary\\\"\\n    />\\n    <div\\n      className=\\\"h-3 w-3 shrink-0 rounded-full\\\"\\n      style={{ backgroundColor: isValidColor(event.color) ? event.color : '#9ca3af' }} // 유효하지 않으면 회색 기본값 사용\\n    />\\n    {/* ... 나머지 코드 ... */}\\n  </div>\\n);\\n```\"\n    }\n  ],\n  \"summary\": \"이 React 컴포넌트는 이벤트 목록을 표시하고, 사용자가 이벤트를 선택하여 복사, 삭제, 수정 작업을 수행할 수 있도록 합니다. 이벤트 필터링 및 복사 옵션을 위한 날짜 입력 필드가 존재하며, `events` 데이터를 기반으로 UI를 렌더링합니다. 분석 결과, `event.color` 속성을 검증 없이 `style` 속성에 직접 사용하는 부분에서 잠재적인 CSS 주입 또는 XSS 취약점이 발견되었습니다. 날짜 입력은 `<input type=\\\"date\\\">`를 통해 형식적으로 제한되지만, 콜백 함수(`onBatchCopy`, `onBatchDelete`)에 전달되기 전에 해당 값의 추가적인 검증이 필요할 수 있습니다.\",\n  \"risk_score\": 5,\n  \"metadata\": {\n    \"trust\": [\n      \"source\"\n    ],\n    \"purpose\": \"This React component allows users to select, filter, and batch manage (copy, delete, edit) events displayed from a list.\",\n    \"calls\": [\n      \"useState\",\n      \"Date\",\n      \"Set\",\n      \"Map\",\n      \"Array.from\",\n      \"localeCompare\",\n      \"parseInt\",\n      \"filter\",\n      \"map\",\n      \"sort\",\n      \"forEach\",\n      \"has\",\n      \"get\",\n      \"set\",\n      \"push\",\n      \"delete\",\n      \"add\",\n      \"slice\",\n      \"confirm\",\n      \"onClose\",\n      \"onBatchCopy\",\n      \"onBatchDelete\",\n      \"onEditEvent\"\n    ],\n    \"suspicious\": true,\n    \"suspicion_reason\": \"The `event.color` property is used directly in a React `style` attribute without proper validation, potentially allowing CSS injection or XSS if the color value is untrusted and malformed.\"\n  }\n}"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "analyzed_file": "/Users/junguk/ledmiragefolder/planner/src/app/layout.tsx",
+  "analyzed_at": "2026-05-10T14:18:55.460047",
+  "result": {
+    "vulnerabilities": [],
+    "summary": "제공된 `layout.tsx` 파일은 Next.js 애플리케이션의 루트 레이아웃을 정의합니다. 이 코드에는 정적 메타데이터, 폰트 로드, Google Analytics 스크립트 삽입, 그리고 서비스 워커 등록 스크립트가 포함되어 있습니다. `dangerouslySetInnerHTML`이 사용된 부분이 있지만, 해당 내용은 사용자 입력 없이 완전히 정적으로 하드코딩되어 있습니다. 따라서, 사용자 입력이 스크립트에 주입될 가능성이 없어 XSS(CWE-79)와 같은 클라이언트 측 취약점은 발견되지 않았습니다. 이 컴포넌트는 데이터베이스 작업이나 직접적인 사용자 입력 처리를 하지 않으므로 다른 유형의 일반적인 웹 취약점(예: SQL Injection, IDOR 등) 또한 존재하지 않습니다. 전반적으로 보안 취약점이 발견되지 않았습니다.",
+    "risk_score": 0,
+    "metadata": {
+      "trust": [
+        "other"
+      ],
+      "purpose": "This code defines the root layout for a Next.js application, including metadata, viewport settings, global styles, and embeds Google Analytics and service worker registration scripts.",
+      "calls": [
+        "Geist",
+        "Geist_Mono",
+        "Script"
+      ],
+      "suspicious": false,
+      "suspicion_reason": ""
+    },
+    "_raw_response": "{\n  \"vulnerabilities\": [],\n  \"summary\": \"제공된 `layout.tsx` 파일은 Next.js 애플리케이션의 루트 레이아웃을 정의합니다. 이 코드에는 정적 메타데이터, 폰트 로드, Google Analytics 스크립트 삽입, 그리고 서비스 워커 등록 스크립트가 포함되어 있습니다. `dangerouslySetInnerHTML`이 사용된 부분이 있지만, 해당 내용은 사용자 입력 없이 완전히 정적으로 하드코딩되어 있습니다. 따라서, 사용자 입력이 스크립트에 주입될 가능성이 없어 XSS(CWE-79)와 같은 클라이언트 측 취약점은 발견되지 않았습니다. 이 컴포넌트는 데이터베이스 작업이나 직접적인 사용자 입력 처리를 하지 않으므로 다른 유형의 일반적인 웹 취약점(예: SQL Injection, IDOR 등) 또한 존재하지 않습니다. 전반적으로 보안 취약점이 발견되지 않았습니다.\",\n  \"risk_score\": 0,\n  \"metadata\": {\n    \"trust\": [\"other\"],\n    \"purpose\": \"This code defines the root layout for a Next.js application, including metadata, viewport settings, global styles, and embeds Google Analytics and service worker registration scripts.\",\n    \"calls\": [\"Geist\", \"Geist_Mono\", \"Script\"],\n    \"suspicious\": false,\n    \"suspicion_reason\": \"\"\n  }\n}"
+  }
+}

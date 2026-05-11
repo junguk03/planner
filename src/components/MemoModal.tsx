@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Memo } from '@/lib/supabase';
 
 const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
@@ -15,6 +15,14 @@ export default function MemoModal({ memo, onSave, onClose }: Props) {
   const [title, setTitle] = useState(memo?.title || '');
   const [content, setContent] = useState(memo?.content || '');
   const [color, setColor] = useState(memo?.color || '#3b82f6');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleSave = () => {
     if (!title.trim() && !content.trim()) return;
