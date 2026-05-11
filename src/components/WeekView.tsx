@@ -260,6 +260,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                   onDragOver={(e) => {
                     if (e.dataTransfer.types.length > 0) {
                       e.preventDefault();
+                      e.stopPropagation();
                     }
                   }}
                   onDrop={(e) => {
@@ -267,11 +268,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                     e.stopPropagation();
                     const sourceId = e.dataTransfer.getData('eventId');
                     if (!sourceId || sourceId === ev.id) return;
-                    if (e.shiftKey) {
-                      onSwapEvents(sourceId, ev.id);
-                    } else {
-                      onMoveEvent(sourceId, ev.date); // all-day target
-                    }
+                    onSwapEvents(sourceId, ev.id);
                   }}
                   onContextMenu={(e) => e.preventDefault()}
                   onMouseDown={(e) => {
@@ -423,6 +420,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                           onDragOver={(e) => {
                             if (e.dataTransfer.types.length > 0) {
                               e.preventDefault();
+                              e.stopPropagation();
                             }
                           }}
                           onDrop={(e) => {
@@ -430,12 +428,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                             e.stopPropagation();
                             const sourceId = e.dataTransfer.getData('eventId');
                             if (!sourceId || sourceId === ev.id) return;
-                            if (e.shiftKey) {
-                              onSwapEvents(sourceId, ev.id);
-                            } else {
-                              const hour = parseInt(ev.start_time!.split(':')[0]);
-                              onMoveEvent(sourceId, ev.date, `${String(hour).padStart(2, '0')}:00`);
-                            }
+                            onSwapEvents(sourceId, ev.id);
                           }}
                           onContextMenu={(e) => e.preventDefault()}
                           onMouseDown={(e) => {
