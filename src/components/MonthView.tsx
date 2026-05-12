@@ -197,7 +197,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                   onMoveEvent(eventId, dateStr);
                 }
               }}
-              className={`cursor-pointer border-b border-r border-border/50 p-2 transition-colors ${
+              className={`flex min-h-0 cursor-pointer flex-col overflow-hidden border-b border-r border-border/50 p-2 transition-colors ${
                 draggingId ? '' : 'hover:bg-card-hover'
               } ${isDragOver || isCopyTarget ? 'bg-primary/20' : ''} ${getSelectedRange().includes(dateStr) ? 'bg-success/20' : ''}`}
             >
@@ -214,7 +214,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
               >
                 {day}
               </div>
-              <div className="space-y-1">
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
                 {dayEvents.map((ev) => (
                   <div
                     key={ev.id}
@@ -250,7 +250,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onToggleDone(ev.id);
+                      onEventClick(ev);
                     }}
                     className={`flex cursor-grab items-center gap-1 rounded px-1.5 py-1 text-xs font-medium leading-tight text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
                     style={{
@@ -273,16 +273,6 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                       )}
                       {ev.title}
                     </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
-                      className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 hover:bg-white/20"
-                      title="수정"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                    </button>
                   </div>
                 ))}
               </div>
