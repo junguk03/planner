@@ -277,7 +277,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                       setCopySource(ev);
                     }
                   }}
-                  onClick={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
+                  onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
                   className={`flex min-w-0 cursor-grab items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
                   style={{
                     backgroundColor: ev.color,
@@ -293,16 +293,6 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                     className="h-3 w-3 shrink-0 accent-white cursor-pointer"
                   />
                   <span className={`min-w-0 flex-1 truncate ${ev.done ? 'line-through' : ''}`}>{ev.title}</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
-                    className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 hover:bg-white/20"
-                    title="수정"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
                 </div>
               ))}
             </div>
@@ -439,7 +429,7 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onToggleDone(ev.id);
+                            onEventClick(ev);
                           }}
                           className={`absolute left-0.5 right-0.5 cursor-grab overflow-hidden rounded px-1.5 py-0.5 text-xs font-medium text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
                           style={{
@@ -447,7 +437,8 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                             top: `${top}px`,
                             height: `${height}px`,
                             opacity: draggingId === ev.id ? 0.3 : ev.done ? 0.5 : 0.9,
-                            pointerEvents: copySource ? 'none' : 'auto',
+                            // During resize, ignore pointer so elementFromPoint hits the cell behind
+                            pointerEvents: copySource || resizeSource ? 'none' : 'auto',
                           }}
                         >
                           <div className="flex items-center gap-1">
@@ -459,16 +450,6 @@ export default function WeekView({ year, month, day, events, onTimeClick, onTime
                               className="h-3 w-3 shrink-0 accent-white cursor-pointer"
                             />
                             <span className={`min-w-0 flex-1 truncate ${ev.done ? 'line-through' : ''}`}>{ev.title}</span>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
-                              className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 hover:bg-white/20"
-                              title="수정"
-                            >
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </button>
                           </div>
                           {height > 30 && (
                             <div className={`truncate text-[11px] opacity-70 pl-4 ${ev.done ? 'line-through' : ''}`}>

@@ -50,8 +50,12 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
     e.preventDefault();
     setError('');
 
-    if (password.length < 6) {
-      setError('비밀번호는 6자 이상이어야 합니다.');
+    if (password.length < 8) {
+      setError('비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('비밀번호는 영문과 숫자를 모두 포함해야 합니다.');
       return;
     }
     if (password !== confirmPassword) {
@@ -66,7 +70,9 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
       if (error.message.includes('already registered')) {
         setError('이미 사용 중인 이메일입니다.');
       } else {
-        setError(error.message);
+        // Avoid leaking raw backend error details (CWE-209)
+        setError('회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+        console.error('signup error:', error);
       }
     } else {
       setMessage('가입 확인 이메일을 보냈습니다. 이메일을 확인해 주세요.');
@@ -141,7 +147,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-foreground outline-none focus:border-primary"
-                placeholder={mode === 'signup' ? '6자 이상' : ''}
+                placeholder={mode === 'signup' ? '영문+숫자 8자 이상' : ''}
                 required
               />
             </div>

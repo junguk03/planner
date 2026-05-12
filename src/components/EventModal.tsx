@@ -161,6 +161,7 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
             className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-foreground outline-none focus:border-primary"
             autoFocus
             required
+            maxLength={200}
           />
         </div>
 
@@ -170,6 +171,7 @@ export default function EventModal({ event, date, multiDates, existingEvents, on
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
+            maxLength={2000}
             className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-foreground outline-none focus:border-primary"
           />
         </div>

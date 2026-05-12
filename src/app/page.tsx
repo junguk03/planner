@@ -44,6 +44,11 @@ export default function Home() {
   // Time conflict modal queue (for events conflicting after move/swap)
   const [conflictQueue, setConflictQueue] = useState<Event[]>([]);
 
+  // Pre-move/swap snapshots so we can undo on conflict modal cancel
+  const [pendingRevert, setPendingRevert] = useState<
+    { id: string; date: string; start_time: string | null; end_time: string | null }[]
+  >([]);
+
   // Click-to-paste mode (triggered from EventModal "복사" button)
   const [clickPasteSource, setClickPasteSource] = useState<Event | null>(null);
 
@@ -209,7 +214,30 @@ export default function Home() {
         .eq('id', eventData.id)
         .eq('user_id', user.id);
     } else if (multiDates.length > 1) {
-      // Multi-date insert
+      // Multi-date insert — block if any target date already has an overlapping event
+      if (eventData.start_time) {
+        for (const d of multiDates) {
+          const candidate: Event = {
+            id: '',
+            user_id: user.id,
+            title: eventData.title ?? '',
+            description: eventData.description ?? null,
+            date: d,
+            start_time: eventData.start_time,
+            end_time: eventData.end_time ?? null,
+            color: eventData.color ?? '#3b82f6',
+            done: false,
+            created_at: '',
+          };
+          const c = findTimeConflict(candidate, events);
+          if (c) {
+            alert(
+              `${d} ${c.start_time?.slice(0, 5)}${c.end_time ? `-${c.end_time.slice(0, 5)}` : ''} "${c.title}"와 시간이 겹칩니다. 추가가 취소되었습니다.`,
+            );
+            return;
+          }
+        }
+      }
       const inserts = multiDates.map((date) => ({
         user_id: user.id,
         title: eventData.title,
@@ -232,6 +260,11 @@ export default function Home() {
       });
     }
 
+    // User resolved this event's conflict — remove its revert snapshot
+    if (eventData.id) {
+      setPendingRevert((prev) => prev.filter((r) => r.id !== eventData.id));
+    }
+
     // Advance conflict queue (if user just resolved one of multiple conflicts)
     const remaining = conflictQueue.slice(1);
     if (remaining.length > 0) {
@@ -247,6 +280,7 @@ export default function Home() {
 
   const deleteEvent = async (id: string) => {
     await supabase.from('events').delete().eq('id', id).eq('user_id', user!.id);
+    setPendingRevert((prev) => prev.filter((r) => r.id !== id));
     setConflictQueue([]);
     setModal({ open: false, event: null, date: '' });
     fetchEvents();
@@ -338,6 +372,14 @@ export default function Home() {
       updateData.end_time = null;
     }
 
+    // Snapshot pre-move state so we can revert on conflict-modal cancel
+    const snapshot = {
+      id: event.id,
+      date: event.date,
+      start_time: event.start_time,
+      end_time: event.end_time,
+    };
+
     await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user.id);
     await fetchEvents();
 
@@ -345,7 +387,10 @@ export default function Home() {
     if (updateData.start_time) {
       const moved = { ...event, ...updateData } as Event;
       const conflict = findTimeConflict(moved, events.filter((e) => e.id !== eventId));
-      if (conflict) openConflictModal([moved]);
+      if (conflict) {
+        setPendingRevert([snapshot]);
+        openConflictModal([moved]);
+      }
     }
   };
 
@@ -387,7 +432,9 @@ export default function Home() {
         events.filter((e) => !sameTitleIds.has(e.id)),
       );
       if (conflict) {
-        alert(`시간이 겹칩니다: ${d} ${conflict.start_time?.slice(0, 5)} "${conflict.title}"`);
+        const cs = conflict.start_time?.slice(0, 5) ?? '';
+        const ce = conflict.end_time?.slice(0, 5) ?? '';
+        alert(`시간이 겹칩니다: ${d} ${cs}${ce ? `-${ce}` : ''} "${conflict.title}"`);
         return;
       }
     }
@@ -444,7 +491,14 @@ export default function Home() {
     const conflicts: Event[] = [];
     if (findTimeConflict(aNew, others)) conflicts.push(aNew);
     if (findTimeConflict(bNew, others)) conflicts.push(bNew);
-    if (conflicts.length > 0) openConflictModal(conflicts);
+    if (conflicts.length > 0) {
+      // Snapshot pre-swap state of BOTH events so cancel reverts the swap
+      setPendingRevert([
+        { id: a.id, date: a.date, start_time: a.start_time, end_time: a.end_time },
+        { id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time },
+      ]);
+      openConflictModal(conflicts);
+    }
   };
 
   // Memo CRUD
@@ -775,7 +829,23 @@ export default function Home() {
             setMultiDates([]);
             setConflictQueue([]);
           }}
-          onClose={() => {
+          onClose={async () => {
+            // Revert any unresolved move/swap snapshots
+            if (pendingRevert.length > 0 && user) {
+              for (const snap of pendingRevert) {
+                await supabase
+                  .from('events')
+                  .update({
+                    date: snap.date,
+                    start_time: snap.start_time,
+                    end_time: snap.end_time,
+                  })
+                  .eq('id', snap.id)
+                  .eq('user_id', user.id);
+              }
+              setPendingRevert([]);
+              fetchEvents();
+            }
             setModal({ open: false, event: null, date: '' });
             setMultiDates([]);
             setConflictQueue([]);
