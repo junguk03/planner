@@ -1,31 +1,37 @@
 # Planner
-hello1111
-Personal calendar & planner app with monthly/weekly views.
 
-## Features
+> 일정과 메모를 한 곳에서 가볍게 관리하는 개인용 캘린더 웹앱.
 
-- Monthly calendar view
-- Weekly hourly schedule view
-- Event CRUD (create, edit, delete)
-- Color-coded events
-- Cross-device sync via Supabase
+## 어떤 앱인가요?
 
-## Tech Stack
+매일 하루하루를 정리하고 싶은데 무거운 캘린더 앱이 부담스러운 분들을 위한 플래너입니다.
+일정을 색으로 구분해 한눈에 보고, 자주 보고 싶은 메모는 캘린더 위에 포스트잇처럼 띄워둘 수 있어요.
 
-- Next.js 15 (React, TypeScript)
-- Tailwind CSS
-- Supabase (Auth + PostgreSQL)
-- Vercel (Deployment)
+## 이런 분께 추천해요
 
-## Setup
+- 월간 일정과 주간 시간표를 같이 보고 싶은 분
+- 일정을 마우스로 끌어서 옮기고, 시간을 늘리고 줄이는 직관적인 조작을 원하는 분
+- 다른 기기에서도 같은 일정이 자동으로 보였으면 하는 분
+- 광고 없는 깔끔한 화면을 좋아하는 분
+
+## 주요 기능
+
+- 월 / 주 뷰 전환
+- 일정 추가·수정·삭제, 8가지 색상으로 분류
+- 드래그로 일정 이동·시간 조정·여러 날짜로 한 번에 복사
+- 메모를 캘린더 위에 자유롭게 핀으로 띄우기
+- 모든 기기에서 실시간 동기화 (Supabase)
+- 모바일 홈 화면에 앱처럼 설치 가능 (PWA)
+
+## 개발자용 설정
 
 ```bash
 npm install
 npm run dev
 ```
 
-Create `.env.local` with:
-```
-NEXT_PUBLIC_SUPABASE_URL=your_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key
-```
+`.env.local` 파일에 Supabase 키를 넣어주세요. (`.env.example` 참고)
+
+## 기술 스택
+
+Next.js 16 · React · TypeScript · Tailwind CSS · Supabase · Vercel
