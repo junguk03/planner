@@ -231,6 +231,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                     onDragOver={(e) => {
                       if (e.dataTransfer.types.length > 0) {
                         e.preventDefault();
+                        e.stopPropagation();
                       }
                     }}
                     onDrop={(e) => {
@@ -238,12 +239,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                       e.stopPropagation();
                       const sourceId = e.dataTransfer.getData('eventId');
                       if (!sourceId || sourceId === ev.id) return;
-                      if (e.shiftKey) {
-                        onSwapEvents(sourceId, ev.id);
-                      } else {
-                        // Move to this event's date (conflict modal handles overlap)
-                        onMoveEvent(sourceId, ev.date);
-                      }
+                      onSwapEvents(sourceId, ev.id);
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                     onMouseDown={(e) => {
