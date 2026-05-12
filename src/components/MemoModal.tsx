@@ -54,6 +54,7 @@ export default function MemoModal({ memo, onSave, onClose }: Props) {
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               placeholder="메모 제목"
               autoFocus
+              maxLength={200}
             />
           </div>
 
@@ -64,6 +65,7 @@ export default function MemoModal({ memo, onSave, onClose }: Props) {
               onChange={(e) => setContent(e.target.value)}
               className="h-40 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               placeholder="메모 내용을 입력하세요..."
+              maxLength={5000}
             />
           </div>
 
