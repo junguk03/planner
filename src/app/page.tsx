@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, openedFromRecoveryLink, Event, Memo } from '@/lib/supabase';
+import { supabase, openedFromAuthLink, openedFromRecoveryLink, Event, Memo } from '@/lib/supabase';
 import {
   datesBetween,
   findTimeConflict,
@@ -185,7 +185,9 @@ export default function Home() {
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        if (openedFromRecoveryLink) sessionStorage.setItem('activeSession', 'true');
+        // Arrived from the sign-up confirmation or password-reset email: that link is the
+        // login, so keep the session instead of signing out as "not remembered".
+        if (openedFromAuthLink) sessionStorage.setItem('activeSession', 'true');
         const remembered = localStorage.getItem('rememberMe') === 'true';
         const activeSession = sessionStorage.getItem('activeSession') === 'true';
         if (!remembered && !activeSession) {
