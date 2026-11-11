@@ -1,7 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, Event, Memo } from '@/lib/supabase';
+import { supabase, openedFromRecoveryLink, Event, Memo } from '@/lib/supabase';
+import {
+  datesBetween,
+  findTimeConflict,
+  fmtDate,
+  fromMin,
+  hhmm,
+  parseDate,
+  placeAt,
+  sameSlot,
+  swapPlacement,
+  timeRange,
+} from '@/lib/time';
 import Login from '@/components/Login';
 import MonthView from '@/components/MonthView';
 import WeekView from '@/components/WeekView';
@@ -10,22 +22,71 @@ import Sidebar from '@/components/Sidebar';
 import MemoModal from '@/components/MemoModal';
 import PinnedMemo from '@/components/PinnedMemo';
 import SelectMode from '@/components/SelectMode';
+import Tutorial from '@/components/Tutorial';
+import {
+  ACCOUNT_PINS_KEY,
+  ACCOUNT_TUTORIAL_KEY,
+  MAX_ACCOUNT_PINS,
+  PinLayout,
+  loadPins,
+  markTutorialSeen,
+  pinsPending,
+  readAccountState,
+  samePins,
+  savePins,
+  setPinsPending,
+  tutorialSeen,
+} from '@/lib/localState';
 
 type ViewMode = 'month' | 'week';
+
+/**
+ * How to reverse one user action. Everything the action changed is listed so
+ * "되돌리기" can put it back in one step.
+ */
+type UndoEntry = {
+  /** Shown to the user, e.g. "일정 이동" */
+  label: string;
+  /** Rows the action changed → put these fields back */
+  restore?: { id: string; patch: Partial<Event> }[];
+  /** Rows the action created → delete them */
+  remove?: string[];
+  /** Rows the action deleted → create them again */
+  reinsert?: Event[];
+};
+
+const MAX_UNDO = 30;
+const DEFAULT_PIN = { w: 240, h: 200 };
+
+const slotOf = (e: Event) => ({ date: e.date, start_time: e.start_time, end_time: e.end_time });
+
+type ModalState = {
+  open: boolean;
+  event: Partial<Event> | null;
+  date: string;
+  /** Explains why the modal opened (e.g. a drag landed on an occupied time) */
+  notice?: string;
+};
+const CLOSED_MODAL: ModalState = { open: false, event: null, date: '' };
+
+type NewEvent = Pick<Event, 'user_id' | 'title' | 'description' | 'date' | 'start_time' | 'end_time' | 'color'>;
+
+const MAX_REPEAT_DAYS = 366;
+
+const conflictText = (c: Event) =>
+  `${c.date.slice(5).replace('-', '/')} ${hhmm(c.start_time)}${c.end_time ? `-${hhmm(c.end_time)}` : ''} "${c.title}"`;
 
 export default function Home() {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  // Arrived from a password-reset email: ask for a new password before showing the app
+  const [recovery, setRecovery] = useState(openedFromRecoveryLink);
   const [view, setView] = useState<ViewMode>('month');
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState(new Date().getDate());
   const [events, setEvents] = useState<Event[]>([]);
-  const [modal, setModal] = useState<{
-    open: boolean;
-    event: Partial<Event> | null;
-    date: string;
-  }>({ open: false, event: null, date: '' });
+  const [modal, setModal] = useState<ModalState>(CLOSED_MODAL);
 
   // Sidebar & Memo state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -34,28 +95,97 @@ export default function Home() {
     open: boolean;
     memo: Partial<Memo> | null;
   }>({ open: false, memo: null });
-  const [pinnedMemoIds, setPinnedMemoIds] = useState<string[]>([]);
+  // Memos pinned on the calendar (with position/size). Saved with the account, so they
+  // are the same on every device the user logs in on.
+  const [pins, setPins] = useState<PinLayout[]>([]);
+  // The account `pins` was loaded for — nothing is saved until this matches the signed-in user
+  const [pinsOwner, setPinsOwner] = useState<string | null>(null);
+  const localLoadedFor = useRef<string | null>(null);
+  // True while this device has pin changes the account doesn't have yet
+  const pinsDirty = useRef(false);
+  // Counts pin changes, so a finished save knows whether a newer change is still waiting
+  const pinsVersion = useRef(0);
   const [selectModeOpen, setSelectModeOpen] = useState(false);
   const [multiDates, setMultiDates] = useState<string[]>([]);
-  const [undoStack, setUndoStack] = useState<Event[][]>([]);
-  const [undoVisible, setUndoVisible] = useState(false);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Time conflict modal queue (for events conflicting after move/swap)
-  const [conflictQueue, setConflictQueue] = useState<Event[]>([]);
+  // Undo history (this session only), newest last
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [undoing, setUndoing] = useState(false);
+  const pushUndo = (entry: UndoEntry) => setUndoStack((prev) => [...prev.slice(-(MAX_UNDO - 1)), entry]);
 
-  // Pre-move/swap snapshots so we can undo on conflict modal cancel
-  const [pendingRevert, setPendingRevert] = useState<
-    { id: string; date: string; start_time: string | null; end_time: string | null }[]
-  >([]);
+  // Guided tour of the features
+  const [tourOpen, setTourOpen] = useState(false);
+  const tourReturnView = useRef<ViewMode>('month');
 
   // Click-to-paste mode (triggered from EventModal "복사" button)
   const [clickPasteSource, setClickPasteSource] = useState<Event | null>(null);
 
+  // Short message at the top of the screen (errors, "시간이 겹칩니다", copy results)
+  const [notice, setNotice] = useState<{ text: string; kind: 'error' | 'info' } | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notify = useCallback((text: string, kind: 'error' | 'info' = 'error') => {
+    setNotice({ text, kind });
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 5000);
+  }, []);
+
+  /** Reports a failed DB call. Returns true if there was an error. */
+  const failed = (error: { message: string } | null, action: string) => {
+    if (!error) return false;
+    console.error(`${action} failed:`, error);
+    notify(`${action}에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
+    return true;
+  };
+
   // Check auth
   useEffect(() => {
+    const signedIn = (u: { id: string; email?: string; user_metadata?: unknown }) => {
+      setUser((prev) => (prev?.id === u.id ? prev : { id: u.id, email: u.email ?? '' }));
+      // First time we see this account in this page load: restore its pinned memos,
+      // and show the tutorial if it has never been seen.
+      if (localLoadedFor.current !== u.id) {
+        localLoadedFor.current = u.id;
+        const account = readAccountState(u.user_metadata);
+        const local = loadPins(u.id);
+        // This browser's copy wins (and is uploaded) if it has changes that never reached
+        // the account — the page was closed right after moving a pin, or the pins were
+        // made before account sync existed.
+        const localIsNewer = pinsPending(u.id) || (account.pins === null && local.length > 0);
+        pinsDirty.current = localIsNewer;
+        setPins(localIsNewer ? local : account.pins ?? local);
+        setPinsOwner(u.id);
+        if (!account.tutorialSeen && !tutorialSeen(u.id)) setTourOpen(true);
+
+        // The session kept in this browser can be hours old. Ask the server for the
+        // account as it is now, in case pins were changed on another device since.
+        // (Deferred: auth calls must not run inside the auth-state callback.)
+        setTimeout(async () => {
+          const { data } = await supabase.auth.getUser();
+          if (!data.user || localLoadedFor.current !== data.user.id || pinsDirty.current) return;
+          const fresh = readAccountState(data.user.user_metadata);
+          if (fresh.pins) {
+            const freshPins = fresh.pins;
+            setPins((prev) => (samePins(prev, freshPins) ? prev : freshPins));
+          }
+          if (fresh.tutorialSeen && !tutorialSeen(data.user.id)) {
+            markTutorialSeen(data.user.id);
+            setTourOpen(false);
+          }
+        }, 0);
+      }
+    };
+    const signedOut = () => {
+      localLoadedFor.current = null;
+      pinsDirty.current = false;
+      setUser(null);
+      setPinsOwner(null);
+      setPins([]);
+      setUndoStack([]);
+    };
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
+        if (openedFromRecoveryLink) sessionStorage.setItem('activeSession', 'true');
         const remembered = localStorage.getItem('rememberMe') === 'true';
         const activeSession = sessionStorage.getItem('activeSession') === 'true';
         if (!remembered && !activeSession) {
@@ -64,16 +194,20 @@ export default function Home() {
           setLoading(false);
           return;
         }
-        setUser({ id: session.user.id, email: session.user.email! });
+        signedIn(session.user);
       }
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        sessionStorage.setItem('activeSession', 'true');
+        setRecovery(true);
+      }
       if (session?.user) {
-        setUser({ id: session.user.id, email: session.user.email! });
+        signedIn(session.user);
       } else {
-        setUser(null);
+        signedOut();
       }
     });
 
@@ -95,17 +229,17 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch events
+  // Fetch events. Only the newest request may update the list, so a slow response
+  // for a month we already left (or from before a local change) can't overwrite it.
+  const fetchSeq = useRef(0);
   const fetchEvents = useCallback(async () => {
     if (!user) return;
+    const seq = ++fetchSeq.current;
 
     const fetchStart = new Date(year, month, 1);
     fetchStart.setDate(fetchStart.getDate() - 7);
     const fetchEnd = new Date(year, month + 1, 0);
     fetchEnd.setDate(fetchEnd.getDate() + 7);
-
-    const fmtDate = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const { data, error } = await supabase
       .from('events')
@@ -116,6 +250,7 @@ export default function Home() {
       .order('date')
       .order('start_time');
 
+    if (seq !== fetchSeq.current) return;
     if (!error && data) {
       setEvents(data);
     }
@@ -125,17 +260,54 @@ export default function Home() {
     void fetchEvents();
   }, [fetchEvents]);
 
-  // Realtime: listen for event changes
+  /** Apply a change to the list right away; the refetch after the DB call confirms it. */
+  const applyLocal = (update: (prev: Event[]) => Event[]) => {
+    fetchSeq.current++;
+    setEvents(update);
+  };
+
+  // Realtime: listen for event changes (one subscription per user, not per month)
+  const fetchEventsRef = useRef(fetchEvents);
   useEffect(() => {
-    if (!user) return;
+    fetchEventsRef.current = fetchEvents;
+  }, [fetchEvents]);
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
     const channel = supabase
-      .channel('events-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `user_id=eq.${user.id}` }, () => {
-        fetchEvents();
+      .channel(`events-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `user_id=eq.${userId}` }, () => {
+        void fetchEventsRef.current();
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, fetchEvents]);
+    return () => { void supabase.removeChannel(channel); };
+  }, [userId]);
+
+  // Remember pinned memos (only once this account's saved pins have been loaded):
+  // in this browser right away, and with the account shortly after a change.
+  useEffect(() => {
+    if (!userId || pinsOwner !== userId) return;
+    savePins(userId, pins);
+    if (!pinsDirty.current) return;
+    setPinsPending(userId, true);
+    const version = pinsVersion.current;
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.auth.updateUser({
+        data: { [ACCOUNT_PINS_KEY]: pins.slice(0, MAX_ACCOUNT_PINS) },
+      });
+      if (error) {
+        // Still saved (and marked pending) in this browser; retried on the next change or visit
+        console.error('saving pinned memos to the account failed:', error);
+        return;
+      }
+      // Only "all sent" if nothing changed while this save was on its way
+      if (pinsVersion.current === version) {
+        pinsDirty.current = false;
+        setPinsPending(userId, false);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [pins, pinsOwner, userId]);
 
   // Fetch memos
   const fetchMemos = useCallback(async () => {
@@ -164,341 +336,316 @@ export default function Home() {
     setSelectedDay(now.getDate());
   };
 
-  const goPrev = () => {
-    if (view === 'month') {
-      if (month === 0) {
-        setYear(year - 1);
-        setMonth(11);
-      } else {
-        setMonth(month - 1);
-      }
-    } else {
-      const d = new Date(year, month, selectedDay - 7);
-      setYear(d.getFullYear());
-      setMonth(d.getMonth());
-      setSelectedDay(d.getDate());
-    }
+  const shiftMonth = (delta: number) => {
+    const target = new Date(year, month + delta, 1);
+    const daysInTarget = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    setYear(target.getFullYear());
+    setMonth(target.getMonth());
+    // Keep the week-view anchor inside the month (e.g. the 31st → a 30-day month)
+    setSelectedDay(Math.min(selectedDay, daysInTarget));
   };
 
-  const goNext = () => {
-    if (view === 'month') {
-      if (month === 11) {
-        setYear(year + 1);
-        setMonth(0);
-      } else {
-        setMonth(month + 1);
-      }
-    } else {
-      const d = new Date(year, month, selectedDay + 7);
-      setYear(d.getFullYear());
-      setMonth(d.getMonth());
-      setSelectedDay(d.getDate());
-    }
+  const shiftWeek = (delta: number) => {
+    const d = new Date(year, month, selectedDay + delta * 7);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth());
+    setSelectedDay(d.getDate());
+  };
+
+  const goPrev = () => (view === 'month' ? shiftMonth(-1) : shiftWeek(-1));
+  const goNext = () => (view === 'month' ? shiftMonth(1) : shiftWeek(1));
+
+  const closeModal = () => {
+    setModal(CLOSED_MODAL);
+    setMultiDates([]);
   };
 
   // Event CRUD
   const saveEvent = async (eventData: Partial<Event>) => {
     if (!user) return;
 
+    const fields = {
+      title: eventData.title,
+      description: eventData.description,
+      start_time: eventData.start_time,
+      end_time: eventData.end_time,
+      color: eventData.color,
+    };
+
     if (eventData.id) {
-      await supabase
+      const before = events.find((e) => e.id === eventData.id);
+      const { error } = await supabase
         .from('events')
-        .update({
-          title: eventData.title,
-          description: eventData.description,
-          date: eventData.date,
-          start_time: eventData.start_time,
-          end_time: eventData.end_time,
-          color: eventData.color,
-        })
+        .update({ ...fields, date: eventData.date })
         .eq('id', eventData.id)
         .eq('user_id', user.id);
-    } else if (multiDates.length > 1) {
-      // Multi-date insert — block if any target date already has an overlapping event
-      if (eventData.start_time) {
-        for (const d of multiDates) {
-          const candidate: Event = {
-            id: '',
-            user_id: user.id,
-            title: eventData.title ?? '',
-            description: eventData.description ?? null,
-            date: d,
-            start_time: eventData.start_time,
-            end_time: eventData.end_time ?? null,
-            color: eventData.color ?? '#3b82f6',
-            done: false,
-            created_at: '',
-          };
-          const c = findTimeConflict(candidate, events);
-          if (c) {
-            alert(
-              `${d} ${c.start_time?.slice(0, 5)}${c.end_time ? `-${c.end_time.slice(0, 5)}` : ''} "${c.title}"와 시간이 겹칩니다. 추가가 취소되었습니다.`,
-            );
-            return;
-          }
+      if (failed(error, '일정 저장')) return;
+      if (before) {
+        pushUndo({
+          label: '일정 수정',
+          restore: [{
+            id: before.id,
+            patch: {
+              title: before.title,
+              description: before.description,
+              color: before.color,
+              ...slotOf(before),
+            },
+          }],
+        });
+      }
+    } else {
+      const dates = multiDates.length > 1 ? multiDates : [eventData.date!];
+      // Block if any target date already has an overlapping event
+      for (const date of dates) {
+        const conflict = findTimeConflict(
+          { date, start_time: eventData.start_time ?? null, end_time: eventData.end_time ?? null },
+          events,
+        );
+        if (conflict) {
+          notify(`시간이 겹쳐서 추가하지 않았습니다: ${conflictText(conflict)}`);
+          return;
         }
       }
-      const inserts = multiDates.map((date) => ({
-        user_id: user.id,
-        title: eventData.title,
-        description: eventData.description,
-        date,
-        start_time: eventData.start_time,
-        end_time: eventData.end_time,
-        color: eventData.color,
-      }));
-      await supabase.from('events').insert(inserts);
-    } else {
-      await supabase.from('events').insert({
-        user_id: user.id,
-        title: eventData.title,
-        description: eventData.description,
-        date: eventData.date,
-        start_time: eventData.start_time,
-        end_time: eventData.end_time,
-        color: eventData.color,
-      });
+      const { data, error } = await supabase
+        .from('events')
+        .insert(dates.map((date) => ({ user_id: user.id, ...fields, date })))
+        .select('id');
+      if (failed(error, '일정 저장')) return;
+      pushCreated(data, dates.length > 1 ? `일정 ${dates.length}개 추가` : '일정 추가');
     }
 
-    // User resolved this event's conflict — remove its revert snapshot
-    if (eventData.id) {
-      setPendingRevert((prev) => prev.filter((r) => r.id !== eventData.id));
-    }
-
-    // Advance conflict queue (if user just resolved one of multiple conflicts)
-    const remaining = conflictQueue.slice(1);
-    if (remaining.length > 0) {
-      setConflictQueue(remaining);
-      setModal({ open: true, event: remaining[0], date: remaining[0].date });
-    } else {
-      setConflictQueue([]);
-      setModal({ open: false, event: null, date: '' });
-    }
-    setMultiDates([]);
+    closeModal();
     fetchEvents();
   };
 
+  /** Record newly created rows so they can be undone (needs the ids the DB gave them). */
+  const pushCreated = (rows: { id: string }[] | null, label: string) => {
+    if (rows && rows.length > 0) pushUndo({ label, remove: rows.map((r) => r.id) });
+  };
+
   const deleteEvent = async (id: string) => {
-    await supabase.from('events').delete().eq('id', id).eq('user_id', user!.id);
-    setPendingRevert((prev) => prev.filter((r) => r.id !== id));
-    setConflictQueue([]);
-    setModal({ open: false, event: null, date: '' });
+    if (!user) return;
+    const before = events.find((e) => e.id === id);
+    closeModal();
+    applyLocal((prev) => prev.filter((e) => e.id !== id));
+    const { error } = await supabase.from('events').delete().eq('id', id).eq('user_id', user.id);
+    if (!failed(error, '일정 삭제') && before) pushUndo({ label: '일정 삭제', reinsert: [before] });
     fetchEvents();
   };
 
   const toggleDone = async (eventId: string) => {
+    if (!user) return;
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
-    await supabase.from('events').update({ done: !event.done }).eq('id', eventId).eq('user_id', user!.id);
+    applyLocal((prev) => prev.map((e) => (e.id === eventId ? { ...e, done: !event.done } : e)));
+    const { error } = await supabase
+      .from('events')
+      .update({ done: !event.done })
+      .eq('id', eventId)
+      .eq('user_id', user.id);
+    failed(error, '완료 표시');
     fetchEvents();
   };
 
-  const copyEvent = async (event: Event, newDate: string, newStartTime?: string) => {
-    if (!user) return;
+  /**
+   * Copy an event to another date. newStartTime: undefined keeps its time,
+   * null makes the copy all-day, "HH:MM" moves it there (same length).
+   * Returns false if nothing was copied (overlap, past midnight, DB error).
+   */
+  const copyEvent = async (event: Event, newDate: string, newStartTime?: string | null): Promise<boolean> => {
+    if (!user) return false;
 
-    const startTime = newStartTime || event.start_time;
-    let endTime = event.end_time;
-
-    if (newStartTime && event.start_time && event.end_time) {
-      const oldStartMin = parseInt(event.start_time.split(':')[0]) * 60 + parseInt(event.start_time.split(':')[1]);
-      const oldEndMin = parseInt(event.end_time.split(':')[0]) * 60 + parseInt(event.end_time.split(':')[1]);
-      const duration = oldEndMin - oldStartMin;
-      const newStartMin = parseInt(newStartTime.split(':')[0]) * 60 + parseInt(newStartTime.split(':')[1]);
-      const newEndMin = newStartMin + duration;
-      endTime = `${String(Math.floor(newEndMin / 60)).padStart(2, '0')}:${String(newEndMin % 60).padStart(2, '0')}`;
+    const times =
+      newStartTime === undefined
+        ? { start_time: event.start_time, end_time: event.end_time }
+        : placeAt(event, newStartTime);
+    if (!times) {
+      notify('자정(24:00)을 넘어가서 복사할 수 없습니다.');
+      return false;
+    }
+    const conflict = findTimeConflict({ date: newDate, ...times }, events);
+    if (conflict) {
+      notify(`시간이 겹쳐서 복사하지 않았습니다: ${conflictText(conflict)}`);
+      return false;
     }
 
-    await supabase.from('events').insert({
-      user_id: user.id,
-      title: event.title,
-      description: event.description,
-      date: newDate,
-      start_time: startTime,
-      end_time: endTime,
-      color: event.color,
-    });
+    const { data, error } = await supabase
+      .from('events')
+      .insert({
+        user_id: user.id,
+        title: event.title,
+        description: event.description,
+        date: newDate,
+        ...times,
+        color: event.color,
+      })
+      .select('id');
+    if (failed(error, '일정 복사')) return false;
+    pushCreated(data, '일정 복사');
     fetchEvents();
+    return true;
   };
 
-  // Check if a candidate event (already mutated) conflicts with any other event in `pool`
-  const findTimeConflict = (candidate: Event, pool: Event[]): Event | null => {
-    if (!candidate.start_time) return null;
-    const toMin = (t: string) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
-    };
-    const cs = toMin(candidate.start_time);
-    const ce = candidate.end_time ? toMin(candidate.end_time) : cs + 60;
-    for (const o of pool) {
-      if (o.id === candidate.id) continue;
-      if (o.date !== candidate.date) continue;
-      if (!o.start_time) continue;
-      const os = toMin(o.start_time);
-      const oe = o.end_time ? toMin(o.end_time) : os + 60;
-      if (cs < oe && ce > os) return o;
-    }
-    return null;
-  };
-
-  // Open conflict-resolution modal for the first conflicting event in a list
-  const openConflictModal = (conflicts: Event[]) => {
-    if (conflicts.length === 0) return;
-    setConflictQueue(conflicts);
-    setModal({ open: true, event: conflicts[0], date: conflicts[0].date });
-  };
-
-  const moveEvent = async (eventId: string, newDate: string, newStartTime?: string) => {
+  /**
+   * Move an event by drag. newStartTime: undefined keeps its time (month view),
+   * null makes it all-day (all-day row), "HH:MM" moves it there (same length).
+   * If the new time overlaps another event nothing is saved; the edit modal opens
+   * on the new position so the user can adjust the time or cancel.
+   */
+  const moveEvent = async (eventId: string, newDate: string, newStartTime?: string | null) => {
     if (!user) return;
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
-    // Move dragged event to target position
-    const updateData: Record<string, string | null> = { date: newDate };
-    if (newStartTime !== undefined) {
-      const oldStart = event.start_time;
-      const oldEnd = event.end_time;
-      updateData.start_time = newStartTime;
-      if (oldStart && oldEnd) {
-        const oldStartMin = parseInt(oldStart.split(':')[0]) * 60 + parseInt(oldStart.split(':')[1]);
-        const oldEndMin = parseInt(oldEnd.split(':')[0]) * 60 + parseInt(oldEnd.split(':')[1]);
-        const duration = oldEndMin - oldStartMin;
-        const newStartMin = parseInt(newStartTime.split(':')[0]) * 60 + parseInt(newStartTime.split(':')[1]);
-        const newEndMin = newStartMin + duration;
-        updateData.end_time = `${String(Math.floor(newEndMin / 60)).padStart(2, '0')}:${String(newEndMin % 60).padStart(2, '0')}`;
-      }
-    } else {
-      // Dropped onto all-day row — clear times
-      updateData.start_time = null;
-      updateData.end_time = null;
+    const times =
+      newStartTime === undefined
+        ? { start_time: event.start_time, end_time: event.end_time }
+        : placeAt(event, newStartTime);
+    if (!times) {
+      notify('자정(24:00)을 넘어가서 옮길 수 없습니다.');
+      return;
+    }
+    const target = { date: newDate, ...times };
+    if (sameSlot(event, target)) return;
+
+    const moved: Event = { ...event, ...target };
+    if (findTimeConflict(moved, events)) {
+      setMultiDates([]);
+      setModal({
+        open: true,
+        event: moved,
+        date: newDate,
+        notice: '옮기려는 시간에 다른 일정이 있습니다. 시간을 바꿔서 저장하거나 취소하세요. (취소하면 원래 자리에 그대로 있습니다)',
+      });
+      return;
     }
 
-    // Snapshot pre-move state so we can revert on conflict-modal cancel
-    const snapshot = {
-      id: event.id,
-      date: event.date,
-      start_time: event.start_time,
-      end_time: event.end_time,
-    };
-
-    await supabase.from('events').update(updateData).eq('id', eventId).eq('user_id', user.id);
-    await fetchEvents();
-
-    // Conflict check (only if event has a time after move)
-    if (updateData.start_time) {
-      const moved = { ...event, ...updateData } as Event;
-      const conflict = findTimeConflict(moved, events.filter((e) => e.id !== eventId));
-      if (conflict) {
-        setPendingRevert([snapshot]);
-        openConflictModal([moved]);
-      }
+    applyLocal((prev) => prev.map((e) => (e.id === eventId ? moved : e)));
+    const { error } = await supabase.from('events').update(target).eq('id', eventId).eq('user_id', user.id);
+    if (!failed(error, '일정 이동')) {
+      pushUndo({ label: '일정 이동', restore: [{ id: event.id, patch: slotOf(event) }] });
     }
+    fetchEvents();
   };
 
-  // Resize/fill: drag bottom-right handle of an event in WeekView to fill a rectangle of cells.
-  // For each day in [source.date, targetDate], create/extend an event from source.start_time to (targetEndHour+1):00.
-  // Block entirely if any cell conflicts with an unrelated existing event.
+  /**
+   * Resize/fill: drag the bottom-right handle of an event in WeekView.
+   * The event's end becomes the bottom of the target row; if the drag also crossed
+   * days, every day in between gets the same event (an existing one with the same
+   * title and start is stretched instead of duplicated).
+   * Nothing is changed if any day would overlap another event.
+   */
   const resizeFillEvents = async (source: Event, targetDate: string, targetEndHour: number) => {
-    if (!user || !source.start_time) return;
+    if (!user) return;
+    const current = events.find((e) => e.id === source.id) ?? source;
+    const range = timeRange(current);
+    if (!range) return;
 
-    const sourceStartHour = parseInt(source.start_time.split(':')[0]);
-    const sourceStartMin = parseInt(source.start_time.split(':')[1]);
+    const startHour = Math.floor(range[0] / 60);
+    const newStart = hhmm(current.start_time);
+    const newEnd = fromMin(Math.min(Math.max(targetEndHour, startHour) + 1, 24) * 60);
 
-    // Date range (inclusive)
-    const startDate = source.date < targetDate ? source.date : targetDate;
-    const endDate = source.date < targetDate ? targetDate : source.date;
-    const dates: string[] = [];
-    const cursor = new Date(startDate + 'T00:00:00');
-    const last = new Date(endDate + 'T00:00:00');
-    while (cursor <= last) {
-      dates.push(
-        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`,
-      );
-      cursor.setDate(cursor.getDate() + 1);
-    }
+    const plan = datesBetween(current.date, targetDate).map((date) => ({
+      date,
+      existing:
+        date === current.date
+          ? current
+          : events.find((e) => e.date === date && e.title === current.title && hhmm(e.start_time) === newStart),
+    }));
 
-    // Each filled event spans from source's start to one hour after targetEndHour (or original end if greater)
-    const endHour = Math.max(targetEndHour + 1, sourceStartHour + 1);
-    const newStart = source.start_time;
-    const newEnd = `${String(endHour).padStart(2, '0')}:${String(sourceStartMin).padStart(2, '0')}`;
-
-    // Conflict check across all target dates against unrelated events
-    const sameTitleIds = new Set(
-      events.filter((e) => e.title === source.title).map((e) => e.id),
-    );
-    for (const d of dates) {
-      const candidate: Event = { ...source, date: d, start_time: newStart, end_time: newEnd };
+    for (const { date, existing } of plan) {
       const conflict = findTimeConflict(
-        candidate,
-        events.filter((e) => !sameTitleIds.has(e.id)),
+        { id: existing?.id, date, start_time: newStart, end_time: newEnd },
+        events,
       );
       if (conflict) {
-        const cs = conflict.start_time?.slice(0, 5) ?? '';
-        const ce = conflict.end_time?.slice(0, 5) ?? '';
-        alert(`시간이 겹칩니다: ${d} ${cs}${ce ? `-${ce}` : ''} "${conflict.title}"`);
+        notify(`시간이 겹칩니다: ${conflictText(conflict)}`);
         return;
       }
     }
 
-    // Commit: update source itself, create/update copies on other dates
-    await supabase
-      .from('events')
-      .update({ start_time: newStart, end_time: newEnd })
-      .eq('id', source.id)
-      .eq('user_id', user.id);
+    const updateIds = plan
+      .filter((p) => p.existing && hhmm(p.existing.end_time) !== newEnd)
+      .map((p) => p.existing!.id);
+    const inserts: NewEvent[] = plan
+      .filter((p) => !p.existing)
+      .map((p) => ({
+        user_id: user.id,
+        title: current.title,
+        description: current.description,
+        date: p.date,
+        start_time: newStart,
+        end_time: newEnd,
+        color: current.color,
+      }));
+    if (updateIds.length === 0 && inserts.length === 0) return;
 
-    const otherDates = dates.filter((d) => d !== source.date);
-    const inserts = otherDates.map((d) => ({
-      user_id: user.id,
-      title: source.title,
-      description: source.description,
-      date: d,
-      start_time: newStart,
-      end_time: newEnd,
-      color: source.color,
-    }));
-    if (inserts.length > 0) {
-      await supabase.from('events').insert(inserts);
+    const undo: UndoEntry = { label: inserts.length > 0 ? '일정 채우기' : '시간 변경' };
+    applyLocal((prev) => prev.map((e) => (updateIds.includes(e.id) ? { ...e, end_time: newEnd } : e)));
+    if (updateIds.length > 0) {
+      const { error } = await supabase
+        .from('events')
+        .update({ end_time: newEnd })
+        .in('id', updateIds)
+        .eq('user_id', user.id);
+      if (failed(error, '일정 시간 변경')) {
+        fetchEvents();
+        return;
+      }
+      undo.restore = plan
+        .filter((p) => p.existing && updateIds.includes(p.existing.id))
+        .map((p) => ({ id: p.existing!.id, patch: { end_time: p.existing!.end_time } }));
     }
-
+    if (inserts.length > 0) {
+      const { data, error } = await supabase.from('events').insert(inserts).select('id');
+      if (!failed(error, '일정 채우기') && data) undo.remove = data.map((r) => r.id);
+    }
+    if (undo.restore || undo.remove) pushUndo(undo);
     fetchEvents();
   };
 
-  // Swap two events' positions (date + times)
+  // Swap two events: each takes the other's date and start, keeping its own length.
+  // Cancelled (with a message) if either would then overlap a third event.
   const swapEvents = async (sourceId: string, targetId: string) => {
     if (!user || sourceId === targetId) return;
     const a = events.find((e) => e.id === sourceId);
     const b = events.find((e) => e.id === targetId);
     if (!a || !b) return;
 
-    const aNew: Event = { ...a, date: b.date, start_time: b.start_time, end_time: b.end_time };
-    const bNew: Event = { ...b, date: a.date, start_time: a.start_time, end_time: a.end_time };
-
-    await supabase
-      .from('events')
-      .update({ date: aNew.date, start_time: aNew.start_time, end_time: aNew.end_time })
-      .eq('id', sourceId)
-      .eq('user_id', user.id);
-    await supabase
-      .from('events')
-      .update({ date: bNew.date, start_time: bNew.start_time, end_time: bNew.end_time })
-      .eq('id', targetId)
-      .eq('user_id', user.id);
-
-    await fetchEvents();
-
-    // Check conflicts with OTHER events (excluding the two being swapped)
-    const others = events.filter((e) => e.id !== sourceId && e.id !== targetId);
-    const conflicts: Event[] = [];
-    if (findTimeConflict(aNew, others)) conflicts.push(aNew);
-    if (findTimeConflict(bNew, others)) conflicts.push(bNew);
-    if (conflicts.length > 0) {
-      // Snapshot pre-swap state of BOTH events so cancel reverts the swap
-      setPendingRevert([
-        { id: a.id, date: a.date, start_time: a.start_time, end_time: a.end_time },
-        { id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time },
-      ]);
-      openConflictModal(conflicts);
+    const placed = swapPlacement(a, b);
+    if (!placed) {
+      notify('자정(24:00)을 넘어가서 교환할 수 없습니다.');
+      return;
     }
+    const [aSlot, bSlot] = placed;
+    if (sameSlot(a, aSlot) && sameSlot(b, bSlot)) return;
+
+    const conflict =
+      findTimeConflict({ id: a.id, ...aSlot }, events, [b.id]) ??
+      findTimeConflict({ id: b.id, ...bSlot }, events, [a.id]);
+    if (conflict) {
+      notify(`교환하면 시간이 겹쳐서 취소했습니다: ${conflictText(conflict)}`);
+      return;
+    }
+
+    applyLocal((prev) =>
+      prev.map((e) => (e.id === a.id ? { ...e, ...aSlot } : e.id === b.id ? { ...e, ...bSlot } : e)),
+    );
+    const [resA, resB] = await Promise.all([
+      supabase.from('events').update(aSlot).eq('id', a.id).eq('user_id', user.id),
+      supabase.from('events').update(bSlot).eq('id', b.id).eq('user_id', user.id),
+    ]);
+    if (!failed(resA.error ?? resB.error, '일정 교환')) {
+      pushUndo({
+        label: '일정 교환',
+        restore: [
+          { id: a.id, patch: slotOf(a) },
+          { id: b.id, patch: slotOf(b) },
+        ],
+      });
+    }
+    fetchEvents();
   };
 
   // Memo CRUD
@@ -506,7 +653,7 @@ export default function Home() {
     if (!user) return;
 
     if (memoData.id) {
-      await supabase
+      const { error } = await supabase
         .from('memos')
         .update({
           title: memoData.title,
@@ -516,13 +663,15 @@ export default function Home() {
         })
         .eq('id', memoData.id)
         .eq('user_id', user.id);
+      if (failed(error, '메모 저장')) return;
     } else {
-      await supabase.from('memos').insert({
+      const { error } = await supabase.from('memos').insert({
         user_id: user.id,
         title: memoData.title,
         content: memoData.content,
         color: memoData.color,
       });
+      if (failed(error, '메모 저장')) return;
     }
 
     setMemoModal({ open: false, memo: null });
@@ -530,134 +679,261 @@ export default function Home() {
   };
 
   const deleteMemo = async (id: string) => {
-    setPinnedMemoIds((prev) => prev.filter((pid) => pid !== id));
-    await supabase.from('memos').delete().eq('id', id).eq('user_id', user!.id);
+    if (!user) return;
+    unpinMemo(id);
+    const { error } = await supabase.from('memos').delete().eq('id', id).eq('user_id', user.id);
+    failed(error, '메모 삭제');
     fetchMemos();
   };
 
+  // Every pin change made here goes through this, so it is also sent to the account
+  const changePins = useCallback((update: (prev: PinLayout[]) => PinLayout[]) => {
+    pinsDirty.current = true;
+    pinsVersion.current++;
+    setPins(update);
+  }, []);
+
+  const unpinMemo = (id: string) => changePins((prev) => prev.filter((p) => p.id !== id));
+
   const togglePinMemo = (memo: Memo) => {
-    setPinnedMemoIds((prev) =>
-      prev.includes(memo.id)
-        ? prev.filter((id) => id !== memo.id)
-        : [...prev, memo.id]
+    changePins((prev) =>
+      prev.some((p) => p.id === memo.id)
+        ? prev.filter((p) => p.id !== memo.id)
+        : [...prev, { id: memo.id, x: 120 + prev.length * 30, y: 120 + prev.length * 30, ...DEFAULT_PIN }]
     );
   };
 
+  // A pinned memo was dragged or resized: remember where it is now
+  const movePin = useCallback(
+    (id: string, layout: Omit<PinLayout, 'id'>) => {
+      changePins((prev) => prev.map((p) => (p.id === id ? { id, ...layout } : p)));
+    },
+    [changePins],
+  );
+
+  /**
+   * Copy the selected events ("매주 반복" over a date range, or all onto one day).
+   * Copies that already exist or would overlap another event are skipped.
+   * Returns true if the select window should close.
+   */
   const batchCopy = async (
     selectedEvents: Event[],
     mode: 'weekly' | 'daily',
     options: { startDate?: string; endDate?: string; targetDate?: string }
-  ) => {
-    if (!user) return;
+  ): Promise<boolean> => {
+    if (!user) return false;
 
-    const inserts: Array<{
-      user_id: string;
-      title: string;
-      description: string | null;
-      date: string;
-      start_time: string | null;
-      end_time: string | null;
-      color: string;
-    }> = [];
+    const asNew = (ev: Event, date: string): NewEvent => ({
+      user_id: user.id,
+      title: ev.title,
+      description: ev.description,
+      date,
+      start_time: ev.start_time,
+      end_time: ev.end_time,
+      color: ev.color,
+    });
+
+    const candidates: NewEvent[] = [];
+    let rangeFrom: string;
+    let rangeTo: string;
 
     if (mode === 'weekly' && options.startDate && options.endDate) {
-      const start = new Date(options.startDate + 'T00:00:00');
-      const end = new Date(options.endDate + 'T00:00:00');
-
+      rangeFrom = options.startDate;
+      rangeTo = options.endDate;
+      if (rangeFrom > rangeTo) {
+        notify('종료일이 시작일보다 빠릅니다.');
+        return false;
+      }
+      const spanDays = (parseDate(rangeTo).getTime() - parseDate(rangeFrom).getTime()) / 86_400_000;
+      if (spanDays > MAX_REPEAT_DAYS) {
+        notify('매주 반복은 한 번에 최대 1년까지만 가능합니다.');
+        return false;
+      }
+      const days = datesBetween(rangeFrom, rangeTo);
       for (const ev of selectedEvents) {
-        const evDate = new Date(ev.date + 'T00:00:00');
-        const evDow = evDate.getDay();
-
-        const cursor = new Date(start);
-        while (cursor <= end) {
-          if (cursor.getDay() === evDow) {
-            const dateStr = fmtDateUtil(cursor);
-            // Skip if same as original date or already exists
-            const alreadyExists = events.some(
-              (ex) => ex.date === dateStr && ex.title === ev.title && ex.start_time === ev.start_time
-            );
-            if (dateStr !== ev.date && !alreadyExists) {
-              inserts.push({
-                user_id: user.id,
-                title: ev.title,
-                description: ev.description,
-                date: dateStr,
-                start_time: ev.start_time,
-                end_time: ev.end_time,
-                color: ev.color,
-              });
-            }
-          }
-          cursor.setDate(cursor.getDate() + 1);
+        const weekday = parseDate(ev.date).getDay();
+        for (const date of days) {
+          if (date !== ev.date && parseDate(date).getDay() === weekday) candidates.push(asNew(ev, date));
         }
       }
     } else if (mode === 'daily' && options.targetDate) {
-      for (const ev of selectedEvents) {
-        inserts.push({
-          user_id: user.id,
-          title: ev.title,
-          description: ev.description,
-          date: options.targetDate,
-          start_time: ev.start_time,
-          end_time: ev.end_time,
-          color: ev.color,
-        });
-      }
+      rangeFrom = rangeTo = options.targetDate;
+      for (const ev of selectedEvents) candidates.push(asNew(ev, options.targetDate));
+    } else {
+      return false;
     }
 
-    if (inserts.length > 0) {
-      await supabase.from('events').insert(inserts);
-      fetchEvents();
+    // Compare against what is really stored for the target dates —
+    // they are often outside the month that is currently loaded.
+    const { data: existing, error: readError } = await supabase
+      .from('events')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('date', rangeFrom)
+      .lte('date', rangeTo);
+    if (failed(readError, '일정 확인')) return false;
+
+    const pool: Event[] = [...((existing as Event[] | null) ?? [])];
+    const inserts: NewEvent[] = [];
+    let skipped = 0;
+    for (const candidate of candidates) {
+      const duplicate = pool.some(
+        (e) =>
+          e.date === candidate.date &&
+          e.title === candidate.title &&
+          hhmm(e.start_time) === hhmm(candidate.start_time),
+      );
+      if (duplicate || findTimeConflict(candidate, pool)) {
+        skipped++;
+        continue;
+      }
+      inserts.push(candidate);
+      pool.push({ ...candidate, id: `pending-${inserts.length}`, done: false, created_at: '' });
     }
+
+    const skippedText = skipped > 0 ? ` (${skipped}개는 이미 있거나 시간이 겹쳐서 건너뜀)` : '';
+    if (inserts.length === 0) {
+      notify(`복사할 수 있는 일정이 없습니다.${skippedText}`);
+      return false;
+    }
+    const { data, error } = await supabase.from('events').insert(inserts).select('id');
+    if (failed(error, '일정 복사')) return false;
+    pushCreated(data, `일정 ${inserts.length}개 복사`);
+
+    notify(`일정 ${inserts.length}개를 복사했습니다.${skippedText}`, 'info');
+    fetchEvents();
     setSelectModeOpen(false);
+    return true;
   };
 
   const batchDelete = async (selectedEvents: Event[]) => {
     if (!user || selectedEvents.length === 0) return;
     const ids = selectedEvents.map((e) => e.id);
-    await supabase.from('events').delete().in('id', ids);
+    const { error } = await supabase.from('events').delete().in('id', ids).eq('user_id', user.id);
+    if (failed(error, '일정 삭제')) return;
+    applyLocal((prev) => prev.filter((e) => !ids.includes(e.id)));
     fetchEvents();
     setSelectModeOpen(false);
 
-    // Push to undo stack and show toast
-    setUndoStack((prev) => [...prev, selectedEvents]);
-    setUndoVisible(true);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    undoTimerRef.current = setTimeout(() => setUndoVisible(false), 5000);
+    pushUndo({ label: `일정 ${selectedEvents.length}개 삭제`, reinsert: selectedEvents });
+    notify(`일정 ${selectedEvents.length}개를 삭제했습니다. 위쪽 '되돌리기' 버튼으로 복구할 수 있습니다.`, 'info');
   };
 
-  const undoDelete = async () => {
-    if (!user || undoStack.length === 0) return;
-    const last = undoStack[undoStack.length - 1];
-    setUndoStack((prev) => prev.slice(0, -1));
-    setUndoVisible(false);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+  /** Reverse the most recent action in the undo history. */
+  const undoLast = async () => {
+    if (!user || undoing) return;
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry) return;
 
-    const inserts = last.map((ev) => ({
-      user_id: user.id,
-      title: ev.title,
-      description: ev.description,
-      date: ev.date,
-      start_time: ev.start_time,
-      end_time: ev.end_time,
-      color: ev.color,
-      done: ev.done,
-    }));
-    await supabase.from('events').insert(inserts);
-    fetchEvents();
+    setUndoing(true);
+    try {
+      let error: { message: string } | null = null;
+
+      if (entry.remove && entry.remove.length > 0) {
+        ({ error } = await supabase.from('events').delete().in('id', entry.remove).eq('user_id', user.id));
+      }
+      if (!error && entry.restore) {
+        const results = await Promise.all(
+          entry.restore.map(({ id, patch }) =>
+            supabase.from('events').update(patch).eq('id', id).eq('user_id', user.id),
+          ),
+        );
+        error = results.find((r) => r.error)?.error ?? null;
+      }
+      if (!error && entry.reinsert && entry.reinsert.length > 0) {
+        const fieldsOf = (ev: Event) => ({
+          user_id: user.id,
+          title: ev.title,
+          description: ev.description,
+          date: ev.date,
+          start_time: ev.start_time,
+          end_time: ev.end_time,
+          color: ev.color,
+          done: ev.done,
+        });
+        // Bring them back under their old ids so earlier undo steps still find them;
+        // if the database refuses explicit ids, let it assign new ones.
+        ({ error } = await supabase
+          .from('events')
+          .insert(entry.reinsert.map((ev) => ({ id: ev.id, ...fieldsOf(ev) }))));
+        if (error) {
+          ({ error } = await supabase.from('events').insert(entry.reinsert.map(fieldsOf)));
+        }
+      }
+
+      if (failed(error, '되돌리기')) return;
+      setUndoStack((prev) => prev.filter((e) => e !== entry));
+      notify(`되돌렸습니다: ${entry.label}`, 'info');
+    } finally {
+      setUndoing(false);
+      fetchEvents();
+    }
   };
 
-  const fmtDateUtil = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // Ctrl+Z / ⌘Z, unless typing in a field or a window is open on top
+  const undoLastRef = useRef(undoLast);
+  useEffect(() => {
+    undoLastRef.current = undoLast;
+  });
+  const overlayOpen = modal.open || memoModal.open || selectModeOpen || tourOpen;
+  useEffect(() => {
+    if (overlayOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
+      e.preventDefault();
+      void undoLastRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [overlayOpen]);
+
+  const openTour = () => {
+    // Clear anything that would sit on top of (or under) the tour
+    closeModal();
+    setMemoModal({ open: false, memo: null });
+    setSelectModeOpen(false);
+    setSidebarOpen(false);
+    setClickPasteSource(null);
+    tourReturnView.current = view;
+    setTourOpen(true);
+  };
+
+  const closeTour = () => {
+    setTourOpen(false);
+    setView(tourReturnView.current);
+    if (!user || tutorialSeen(user.id)) return;
+    markTutorialSeen(user.id);
+    // Also note it on the account, so it doesn't pop up again on another device
+    void supabase.auth.updateUser({ data: { [ACCOUNT_TUTORIAL_KEY]: true } }).then(({ error }) => {
+      if (error) console.error('saving tutorial state to the account failed:', error);
+    });
+  };
 
   const logout = async () => {
+    // A pin moved a moment ago may not have been sent to the account yet
+    if (pinsDirty.current && user) {
+      const { error } = await supabase.auth.updateUser({
+        data: { [ACCOUNT_PINS_KEY]: pins.slice(0, MAX_ACCOUNT_PINS) },
+      });
+      // If it didn't go through, the pending mark stays and it is sent at the next login here
+      if (!error) setPinsPending(user.id, false);
+      pinsDirty.current = false;
+    }
     localStorage.removeItem('rememberMe');
     sessionStorage.removeItem('activeSession');
     await supabase.auth.signOut();
+    // Pins stay saved with the account for the next login; only the on-screen state is cleared
+    localLoadedFor.current = null;
+    setPinsOwner(null);
+    setPins([]);
+    setUndoStack([]);
     setUser(null);
     setEvents([]);
     setMemos([]);
-    setPinnedMemoIds([]);
+    setClickPasteSource(null);
+    setSidebarOpen(false);
   };
 
   if (loading) {
@@ -668,12 +944,18 @@ export default function Home() {
     );
   }
 
-  if (!user) {
-    return <Login onLogin={() => {}} />;
+  if (!user || recovery) {
+    return <Login recovery={!!user && recovery} onRecoveryDone={() => setRecovery(false)} />;
   }
 
   const monthLabel = `${year}년 ${month + 1}월`;
-  const pinnedMemos = memos.filter((m) => pinnedMemoIds.includes(m.id));
+  const lastUndo = undoStack[undoStack.length - 1];
+
+  const pasteAt = async (date: string, time?: string | null) => {
+    if (!clickPasteSource) return;
+    // Stay in paste mode if it could not be pasted there, so another spot can be clicked
+    if (await copyEvent(clickPasteSource, date, time)) setClickPasteSource(null);
+  };
 
   return (
     <div className="flex h-screen flex-col">
@@ -685,43 +967,65 @@ export default function Home() {
             onClick={() => setSidebarOpen(true)}
             className="rounded-lg p-2 transition-colors hover:bg-card-hover"
             title="메뉴"
+            data-tour="menu"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M3 12h18M3 6h18M3 18h18" />
             </svg>
           </button>
           <h1 className="text-xl font-bold">Planner</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4" data-tour="nav">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goPrev}
+                className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
+                title="이전"
+              >
+                ◀
+              </button>
+              <span className="min-w-[140px] text-center text-base font-medium">{monthLabel}</span>
+              <button
+                onClick={goNext}
+                className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
+                title="다음"
+              >
+                ▶
+              </button>
+            </div>
             <button
-              onClick={goPrev}
-              className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
+              onClick={goToday}
+              className="rounded-lg border border-border px-4 py-1.5 text-sm transition-colors hover:bg-card-hover"
             >
-              ◀
-            </button>
-            <span className="min-w-[140px] text-center text-base font-medium">{monthLabel}</span>
-            <button
-              onClick={goNext}
-              className="rounded-lg px-3 py-1.5 text-base transition-colors hover:bg-card-hover"
-            >
-              ▶
+              오늘
             </button>
           </div>
-          <button
-            onClick={goToday}
-            className="rounded-lg border border-border px-4 py-1.5 text-sm transition-colors hover:bg-card-hover"
-          >
-            오늘
-          </button>
         </div>
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setSelectModeOpen(true)}
+            onClick={undoLast}
+            disabled={!lastUndo || undoing}
+            data-tour="undo"
+            title={lastUndo ? `되돌리기: ${lastUndo.label} (Ctrl+Z)` : '되돌릴 작업이 없습니다'}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-card-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 14L4 9l5-5" />
+              <path d="M4 9h10.5a5.5 5.5 0 010 11H11" />
+            </svg>
+            되돌리기
+          </button>
+          <button
+            onClick={() => {
+              setClickPasteSource(null);
+              setSelectModeOpen(true);
+            }}
+            data-tour="select"
             className="rounded-lg border border-border px-4 py-1.5 text-sm transition-colors hover:bg-card-hover"
           >
             선택
           </button>
-          <div className="flex overflow-hidden rounded-lg border border-border">
+          <div className="flex overflow-hidden rounded-lg border border-border" data-tour="view">
             <button
               onClick={() => setView('month')}
               className={`px-4 py-1.5 text-sm transition-colors ${
@@ -739,6 +1043,15 @@ export default function Home() {
               주
             </button>
           </div>
+          <button
+            onClick={openTour}
+            data-tour="help"
+            title="사용 안내 다시 보기"
+            aria-label="사용 안내"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-sm font-bold text-muted transition-colors hover:bg-card-hover hover:text-foreground"
+          >
+            ?
+          </button>
         </div>
       </header>
 
@@ -765,11 +1078,7 @@ export default function Home() {
           onSwapEvents={swapEvents}
           onCopyEvent={copyEvent}
           pasteSource={clickPasteSource}
-          onPasteClick={(date) => {
-            if (!clickPasteSource) return;
-            copyEvent(clickPasteSource, date);
-            setClickPasteSource(null);
-          }}
+          onPasteClick={pasteAt}
           onCancelPaste={() => setClickPasteSource(null)}
         />
       ) : (
@@ -779,13 +1088,19 @@ export default function Home() {
           day={selectedDay}
           events={events}
           onTimeClick={(date, time, endTime) => {
+            setMultiDates([]);
             setModal({ open: true, event: { start_time: time, end_time: endTime }, date });
           }}
           onTimeRangeSelect={(dates, startTime, endTime) => {
             setMultiDates(dates);
             setModal({ open: true, event: { start_time: startTime, end_time: endTime }, date: dates[0] });
           }}
+          onAllDayClick={(date) => {
+            setMultiDates([]);
+            setModal({ open: true, event: {}, date });
+          }}
           onEventClick={(event) => {
+            setMultiDates([]);
             setModal({ open: true, event, date: event.date });
           }}
           onToggleDone={toggleDone}
@@ -794,25 +1109,19 @@ export default function Home() {
           onCopyEvent={copyEvent}
           onResizeFill={resizeFillEvents}
           pasteSource={clickPasteSource}
-          onPasteClick={(date, time) => {
-            if (!clickPasteSource) return;
-            copyEvent(clickPasteSource, date, time);
-            setClickPasteSource(null);
-          }}
+          onPasteClick={pasteAt}
           onCancelPaste={() => setClickPasteSource(null)}
         />
       )}
 
       {/* Pinned Memos */}
-      {pinnedMemos.map((memo, i) => (
-        <PinnedMemo
-          key={memo.id}
-          memo={memo}
-          initialX={120 + i * 30}
-          initialY={120 + i * 30}
-          onClose={(id) => setPinnedMemoIds((prev) => prev.filter((pid) => pid !== id))}
-        />
-      ))}
+      {pins.map((pin) => {
+        // A pin whose memo isn't loaded (yet) or was deleted elsewhere is simply not drawn
+        const memo = memos.find((m) => m.id === pin.id);
+        return memo ? (
+          <PinnedMemo key={pin.id} memo={memo} layout={pin} onLayoutChange={movePin} onClose={unpinMemo} />
+        ) : null;
+      })}
 
       {/* Event Modal */}
       {modal.open && (
@@ -821,35 +1130,16 @@ export default function Home() {
           date={modal.date}
           multiDates={multiDates}
           existingEvents={events}
+          notice={modal.notice}
           onSave={saveEvent}
           onDelete={deleteEvent}
           onCopyMode={(ev) => {
-            setClickPasteSource(ev);
-            setModal({ open: false, event: null, date: '' });
-            setMultiDates([]);
-            setConflictQueue([]);
+            // Copy the saved event, not an unsaved drag position shown in the modal
+            setClickPasteSource(events.find((e) => e.id === ev.id) ?? ev);
+            closeModal();
+            setSelectModeOpen(false);
           }}
-          onClose={async () => {
-            // Revert any unresolved move/swap snapshots
-            if (pendingRevert.length > 0 && user) {
-              for (const snap of pendingRevert) {
-                await supabase
-                  .from('events')
-                  .update({
-                    date: snap.date,
-                    start_time: snap.start_time,
-                    end_time: snap.end_time,
-                  })
-                  .eq('id', snap.id)
-                  .eq('user_id', user.id);
-              }
-              setPendingRevert([]);
-              fetchEvents();
-            }
-            setModal({ open: false, event: null, date: '' });
-            setMultiDates([]);
-            setConflictQueue([]);
-          }}
+          onClose={closeModal}
         />
       )}
 
@@ -864,21 +1154,26 @@ export default function Home() {
 
       {/* Select Mode */}
       {selectModeOpen && (() => {
-        let selectEvents = events;
+        let selectEvents: Event[];
         if (view === 'week') {
           const anchor = new Date(year, month, selectedDay);
-          const dow = anchor.getDay();
-          const weekDates = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(anchor);
-            d.setDate(anchor.getDate() - dow + i);
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          });
-          selectEvents = events.filter((e) => weekDates.includes(e.date));
+          const weekStart = new Date(anchor);
+          weekStart.setDate(anchor.getDate() - anchor.getDay());
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekStart.getDate() + 6);
+          const from = fmtDate(weekStart);
+          const to = fmtDate(weekEnd);
+          selectEvents = events.filter((e) => e.date >= from && e.date <= to);
+        } else {
+          // Only the month on screen (the loaded list also holds a week on each side)
+          const monthPrefix = fmtDate(new Date(year, month, 1)).slice(0, 8);
+          selectEvents = events.filter((e) => e.date.startsWith(monthPrefix));
         }
         return (
           <SelectMode
             events={selectEvents}
             weekMode={view === 'week'}
+            monthLabel={`${month + 1}월`}
             onClose={() => setSelectModeOpen(false)}
             onBatchCopy={batchCopy}
             onBatchDelete={batchDelete}
@@ -890,26 +1185,29 @@ export default function Home() {
         );
       })()}
 
-      {/* Undo Toast */}
-      {undoVisible && (
-        <div className="fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border bg-card px-5 py-3 shadow-xl">
-          <span className="text-sm text-foreground">이벤트가 삭제되었습니다</span>
+      {/* Notice */}
+      {notice && (
+        <div
+          role="status"
+          className={`fixed left-1/2 top-4 z-[80] flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-xl border bg-card px-5 py-3 text-sm shadow-xl ${
+            notice.kind === 'error' ? 'border-danger/60 text-danger' : 'border-success/60 text-success'
+          }`}
+        >
+          <span>{notice.text}</span>
           <button
-            onClick={undoDelete}
-            className="rounded-lg bg-primary px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+            onClick={() => setNotice(null)}
+            className="shrink-0 rounded-lg p-1 text-muted hover:text-foreground"
+            title="닫기"
           >
-            되돌리기
-          </button>
-          <button
-            onClick={() => setUndoVisible(false)}
-            className="rounded-lg p-1 text-muted hover:text-foreground"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
       )}
+
+      {/* Tutorial */}
+      {tourOpen && <Tutorial view={view} onViewChange={setView} onClose={closeTour} />}
 
       {/* Sidebar */}
       <Sidebar
@@ -926,7 +1224,7 @@ export default function Home() {
         }}
         onDeleteMemo={deleteMemo}
         onPinMemo={togglePinMemo}
-        pinnedMemoIds={pinnedMemoIds}
+        pinnedMemoIds={pins.map((p) => p.id)}
         onLogout={logout}
       />
     </div>
