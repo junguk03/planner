@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 
+// React's development build needs eval() for its debugging features; production does not.
+const devScriptSrc = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : "";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -14,9 +17,10 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com",
-      "img-src 'self' data: blob:",
+      `script-src 'self' 'unsafe-inline'${devScriptSrc} https://www.googletagmanager.com`,
+      // Google Analytics (loaded in layout.tsx) reports through these hosts
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.google-analytics.com https://*.googletagmanager.com",
+      "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com",
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' https://fonts.gstatic.com",
       "frame-ancestors 'none'",

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { Event } from '@/lib/supabase';
+import { hhmm } from '@/lib/time';
+import { useBackdropClose } from '@/lib/useBackdropClose';
 
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -10,13 +12,17 @@ type CopyMode = 'weekly' | 'daily' | null;
 type Props = {
   events: Event[];
   weekMode?: boolean;
+  /** e.g. "11월" — shown in the title in month mode */
+  monthLabel?: string;
   onClose: () => void;
-  onBatchCopy: (events: Event[], mode: 'weekly' | 'daily', options: { startDate?: string; endDate?: string; targetDate?: string }) => void;
+  /** Resolves to true when the copy was done (the window then closes) */
+  onBatchCopy: (events: Event[], mode: 'weekly' | 'daily', options: { startDate?: string; endDate?: string; targetDate?: string }) => Promise<boolean>;
   onBatchDelete: (events: Event[]) => void;
   onEditEvent: (event: Event) => void;
 };
 
-export default function SelectMode({ events, weekMode = false, onClose, onBatchCopy, onBatchDelete, onEditEvent }: Props) {
+export default function SelectMode({ events, weekMode = false, monthLabel, onClose, onBatchCopy, onBatchDelete, onEditEvent }: Props) {
+  const backdrop = useBackdropClose(onClose);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copyMode, setCopyMode] = useState<CopyMode>(null);
   const [startDate, setStartDate] = useState('');
@@ -61,17 +67,27 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   })();
 
-  // ── Month mode: dedup by weekday + title + time ───────────────────────────
-  const uniqueEvents = (() => {
-    if (weekMode || isFiltered) return new Map<string, Event>();
-    const map = new Map<string, Event>();
-    events.forEach((ev) => {
-      const dow = new Date(ev.date + 'T00:00:00').getDay();
-      const key = `${dow}-${ev.title}-${ev.start_time || ''}-${ev.end_time || ''}`;
-      if (!map.has(key)) map.set(key, ev);
-    });
+  // ── Month mode: one row per weekday + title + time ────────────────────────
+  // Each row stands for every matching event in the month (patternGroups);
+  // uniqueEvents holds the earliest one as the row's representative.
+  const patternGroups = (() => {
+    const map = new Map<string, Event[]>();
+    if (weekMode || isFiltered) return map;
+    [...events]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .forEach((ev) => {
+        const dow = new Date(ev.date + 'T00:00:00').getDay();
+        const key = `${dow}-${ev.title}-${hhmm(ev.start_time)}-${hhmm(ev.end_time)}`;
+        const group = map.get(key);
+        if (group) group.push(ev);
+        else map.set(key, [ev]);
+      });
     return map;
   })();
+
+  const uniqueEvents = new Map<string, Event>(
+    Array.from(patternGroups.entries()).map(([key, group]) => [key, group[0]]),
+  );
 
   const groupedUnique = (() => {
     if (weekMode || isFiltered) return new Map<number, { key: string; event: Event }[]>();
@@ -90,6 +106,16 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     ? filteredEvents.length
     : uniqueEvents.size;
 
+  // Keys that can be selected right now. Selected keys that no longer exist
+  // (the event was edited or removed meanwhile) are ignored.
+  const selectableKeys = weekMode
+    ? events.map((e) => e.id)
+    : isFiltered
+    ? filteredEvents.map((e) => e.id)
+    : Array.from(uniqueEvents.keys());
+  const activeKeys = selectableKeys.filter((k) => selectedIds.has(k));
+  const allSelected = totalCount > 0 && activeKeys.length === totalCount;
+
   // ── Selection helpers ─────────────────────────────────────────────────────
   const toggleEvent = (key: string) => {
     setSelectedIds((prev) => {
@@ -101,30 +127,38 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === totalCount) {
-      setSelectedIds(new Set());
-    } else {
-      if (weekMode) {
-        setSelectedIds(new Set(events.map((e) => e.id)));
-      } else if (isFiltered) {
-        setSelectedIds(new Set(filteredEvents.map((e) => e.id)));
-      } else {
-        setSelectedIds(new Set(uniqueEvents.keys()));
-      }
-    }
+    setSelectedIds(allSelected ? new Set() : new Set(selectableKeys));
   };
 
-  const selectedEvents = (weekMode || isFiltered)
-    ? (weekMode ? events : filteredEvents).filter((e) => selectedIds.has(e.id))
-    : (Array.from(selectedIds).map((k) => uniqueEvents.get(k)).filter(Boolean) as Event[]);
+  const patternMode = !weekMode && !isFiltered;
+
+  // One event per selected row (used for copying)
+  const selectedEvents = patternMode
+    ? activeKeys.map((k) => uniqueEvents.get(k)!)
+    : (weekMode ? events : filteredEvents).filter((e) => selectedIds.has(e.id));
+
+  // Every event the selected rows stand for (used for deleting)
+  const eventsToDelete = patternMode
+    ? activeKeys.flatMap((k) => patternGroups.get(k) ?? [])
+    : selectedEvents;
+
+  const handleDelete = () => {
+    if (eventsToDelete.length === 0) return;
+    if (patternMode && !confirm(`${monthLabel ?? '이번 달'}의 일정 ${eventsToDelete.length}개를 삭제할까요?`)) return;
+    onBatchDelete(eventsToDelete);
+  };
 
   const handleCopy = async () => {
-    if (selectedEvents.length === 0) return;
+    if (selectedEvents.length === 0 || copying) return;
     setCopying(true);
-    if (copyMode === 'weekly' && startDate && endDate) {
-      onBatchCopy(selectedEvents, 'weekly', { startDate, endDate });
-    } else if (copyMode === 'daily' && targetDate) {
-      onBatchCopy(selectedEvents, 'daily', { targetDate });
+    try {
+      if (copyMode === 'weekly' && startDate && endDate) {
+        await onBatchCopy(selectedEvents, 'weekly', { startDate, endDate });
+      } else if (copyMode === 'daily' && targetDate) {
+        await onBatchCopy(selectedEvents, 'daily', { targetDate });
+      }
+    } finally {
+      setCopying(false);
     }
   };
 
@@ -135,7 +169,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
     const seen = new Set<string>();
     const duplicates: Event[] = [];
     for (const ev of sorted) {
-      const key = `${ev.date}-${ev.title}-${ev.start_time || ''}`;
+      const key = `${ev.date}-${ev.title}-${hhmm(ev.start_time)}`;
       if (seen.has(key)) {
         duplicates.push(ev);
       } else {
@@ -149,7 +183,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
   const sortedDays = [1, 2, 3, 4, 5, 6, 0].filter((d) => groupedUnique.has(d));
 
   // ── Render helpers ────────────────────────────────────────────────────────
-  const renderEventRow = (key: string, event: Event) => (
+  const renderEventRow = (key: string, event: Event, count = 1) => (
     <div
       key={key}
       onClick={() => toggleEvent(key)}
@@ -169,8 +203,13 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
         <span className="text-sm font-medium">{event.title}</span>
         {event.start_time && (
           <span className="ml-2 text-xs text-muted">
-            {event.start_time.slice(0, 5)}
-            {event.end_time ? ` - ${event.end_time.slice(0, 5)}` : ''}
+            {hhmm(event.start_time)}
+            {event.end_time ? ` - ${hhmm(event.end_time)}` : ''}
+          </span>
+        )}
+        {count > 1 && (
+          <span className="ml-2 rounded bg-card-hover px-1.5 py-0.5 text-xs text-muted" title="이 달에 같은 일정이 있는 횟수">
+            {count}개
           </span>
         )}
       </div>
@@ -188,14 +227,11 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl bg-card shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" {...backdrop}>
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl bg-card shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-bold">선택 모드{weekMode && <span className="ml-2 text-sm font-normal text-muted">(이번 주)</span>}</h2>
+          <h2 className="text-lg font-bold">선택 모드<span className="ml-2 text-sm font-normal text-muted">({weekMode ? '이번 주' : monthLabel ?? '이번 달'})</span></h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-card-hover hover:text-foreground">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -208,7 +244,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm text-muted">이벤트를 선택하세요</span>
             <button onClick={toggleAll} className="text-xs text-primary hover:underline">
-              {selectedIds.size === totalCount ? '전체 해제' : '전체 선택'}
+              {allSelected ? '전체 해제' : '전체 선택'}
             </button>
           </div>
 
@@ -336,7 +372,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
                           <div className="space-y-1.5">
                             {groupedUnique.get(dow)!
                               .sort((a, b) => (a.event.start_time || '').localeCompare(b.event.start_time || ''))
-                              .map(({ key, event }) => renderEventRow(key, event))}
+                              .map(({ key, event }) => renderEventRow(key, event, patternGroups.get(key)?.length ?? 1))}
                           </div>
                         </div>
                       ))}
@@ -349,13 +385,18 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
         </div>
 
         {/* Actions */}
-        {selectedIds.size > 0 && (
+        {activeKeys.length > 0 && (
           <div className="border-t border-border px-6 py-4">
-            <div className="mb-3 text-sm font-medium">{selectedIds.size}개 선택됨</div>
+            <div className="mb-3 text-sm font-medium">
+              {activeKeys.length}개 선택됨
+              {eventsToDelete.length !== activeKeys.length && (
+                <span className="ml-2 font-normal text-muted">(삭제 시 일정 {eventsToDelete.length}개)</span>
+              )}
+            </div>
 
             {/* Delete */}
             <button
-              onClick={() => onBatchDelete(selectedEvents)}
+              onClick={handleDelete}
               className="mb-3 w-full rounded-lg border border-danger/40 bg-danger/10 py-2.5 text-sm font-medium text-danger transition-colors hover:bg-danger/20"
             >
               선택 삭제
@@ -390,7 +431,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
             {/* Weekly options */}
             {copyMode === 'weekly' && (
               <div className="mt-3 space-y-2">
-                <div className="text-xs text-muted">선택한 이벤트가 각 요일에 매주 반복됩니다</div>
+                <div className="text-xs text-muted">선택한 이벤트가 각 요일에 매주 반복됩니다 (이미 있거나 시간이 겹치는 날은 건너뜁니다)</div>
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <label className="mb-1 block text-xs text-muted">시작일</label>
@@ -407,6 +448,7 @@ export default function SelectMode({ events, weekMode = false, onClose, onBatchC
                     <input
                       type="date"
                       value={endDate}
+                      min={startDate || undefined}
                       onChange={(e) => setEndDate(e.target.value)}
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                     />

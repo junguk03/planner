@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Event } from '@/lib/supabase';
+import { fmtDate, hhmm } from '@/lib/time';
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -13,6 +14,7 @@ type Props = {
   onDateRangeSelect: (dates: string[]) => void;
   onEventClick: (event: Event) => void;
   onToggleDone: (eventId: string) => void;
+  /** Moves to another day; the event keeps its time */
   onMoveEvent: (eventId: string, newDate: string) => void;
   onSwapEvents: (sourceId: string, targetId: string) => void;
   onCopyEvent: (event: Event, newDate: string) => void;
@@ -24,10 +26,13 @@ type Props = {
 export default function MonthView({ year, month, events, onDateClick, onDateRangeSelect, onEventClick, onToggleDone, onMoveEvent, onSwapEvents, onCopyEvent, pasteSource, onPasteClick, onCancelPaste }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayStr = fmtDate(new Date());
+
+  // HTML5 drag (move / swap)
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [dragOverEventId, setDragOverEventId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
 
   // Date range selection (left-click drag on empty area)
   const [rangeStartDay, setRangeStartDay] = useState<number | null>(null);
@@ -47,17 +52,6 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
     document.addEventListener('mouseup', cleanup);
     return () => document.removeEventListener('mouseup', cleanup);
   }, []);
-
-  const getSelectedRange = () => {
-    if (rangeStartDay === null || rangeEndDay === null) return [];
-    const minDay = Math.min(rangeStartDay, rangeEndDay);
-    const maxDay = Math.max(rangeStartDay, rangeEndDay);
-    const dates: string[] = [];
-    for (let d = minDay; d <= maxDay; d++) {
-      dates.push(getDateStr(d));
-    }
-    return dates;
-  };
 
   // Right-click copy
   const [copySource, setCopySource] = useState<Event | null>(null);
@@ -91,7 +85,8 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
     };
 
     const handleUp = () => {
-      if (copyTargetRef.current && copySource) {
+      // Releasing on the event's own day is not a copy
+      if (copyTargetRef.current && copyTargetRef.current !== copySource.date) {
         onCopyEvent(copySource, copyTargetRef.current);
       }
       setCopySource(null);
@@ -118,8 +113,23 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
     events.filter((e) => e.date === getDateStr(day))
       .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
 
+  const isInSelectedRange = (day: number) => {
+    if (rangeStartDay === null || rangeEndDay === null) return false;
+    return day >= Math.min(rangeStartDay, rangeEndDay) && day <= Math.max(rangeStartDay, rangeEndDay);
+  };
+
+  // While copying or pasting, events let the pointer through to the day cell below
+  const gestureActive = !!copySource || !!pasteSource;
+
+  const clearDragState = () => {
+    dragIdRef.current = null;
+    setDraggingId(null);
+    setDragOverDate(null);
+    setDragOverEventId(null);
+  };
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div data-tour="calendar" className="flex flex-1 select-none flex-col overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border">
         {DAYS.map((d, i) => (
@@ -152,15 +162,14 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
               key={day}
               data-month-date={dateStr}
               onMouseDown={(e) => {
-                if (e.button === 0 && e.target === e.currentTarget && !copySource && !pasteSource) {
-                  setRangeStartDay(day);
-                  setRangeEndDay(day);
-                }
+                if (e.button !== 0 || gestureActive) return;
+                // Anywhere in the cell except on an event starts a click / range selection
+                if ((e.target as HTMLElement).closest('[data-event-id]')) return;
+                setRangeStartDay(day);
+                setRangeEndDay(day);
               }}
-              onClick={(e) => {
-                if (pasteSource && e.target === e.currentTarget) {
-                  onPasteClick?.(dateStr);
-                }
+              onClick={() => {
+                if (pasteSource) onPasteClick?.(dateStr);
               }}
               onMouseEnter={() => {
                 if (rangeStartDay !== null) {
@@ -185,21 +194,24 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                 }
               }}
               onDragOver={(e) => {
+                if (!dragIdRef.current) return;
                 e.preventDefault();
                 setDragOverDate(dateStr);
               }}
               onDragLeave={() => setDragOverDate((prev) => (prev === dateStr ? null : prev))}
               onDrop={(e) => {
                 e.preventDefault();
-                setDragOverDate(null);
                 const eventId = e.dataTransfer.getData('eventId');
+                clearDragState();
                 if (eventId) {
                   onMoveEvent(eventId, dateStr);
                 }
               }}
-              className={`flex min-h-0 cursor-pointer flex-col overflow-hidden border-b border-r border-border/50 p-2 transition-colors ${
-                draggingId ? '' : 'hover:bg-card-hover'
-              } ${isDragOver || isCopyTarget ? 'bg-primary/20' : ''} ${getSelectedRange().includes(dateStr) ? 'bg-success/20' : ''}`}
+              className={`flex min-h-0 flex-col overflow-hidden border-b border-r border-border/50 p-2 transition-colors ${
+                pasteSource ? 'cursor-copy' : 'cursor-pointer'
+              } ${draggingId ? '' : 'hover:bg-card-hover'} ${isDragOver || isCopyTarget ? 'bg-primary/20' : ''} ${
+                isInSelectedRange(day) ? 'bg-success/20' : ''
+              }`}
             >
               <div
                 className={`mb-1 inline-flex h-8 w-8 items-center justify-center rounded-full text-sm ${
@@ -218,30 +230,38 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                 {dayEvents.map((ev) => (
                   <div
                     key={ev.id}
-                    draggable
+                    data-event-id={ev.id}
+                    draggable={!gestureActive}
                     onDragStart={(e) => {
+                      if (gestureActive) {
+                        e.preventDefault();
+                        return;
+                      }
                       e.dataTransfer.setData('eventId', ev.id);
                       e.dataTransfer.effectAllowed = 'move';
-                      setDraggingId(ev.id);
+                      dragIdRef.current = ev.id;
+                      // Deferred so the browser snapshots the drag image before the chip fades
+                      setTimeout(() => {
+                        if (dragIdRef.current === ev.id) setDraggingId(ev.id);
+                      }, 0);
                     }}
-                    onDragEnd={() => {
-                      setDraggingId(null);
+                    onDragEnd={clearDragState}
+                    onDragOver={(e) => {
+                      if (!dragIdRef.current || dragIdRef.current === ev.id) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverEventId(ev.id);
                       setDragOverDate(null);
                     }}
-                    onDragOver={(e) => {
-                      if (e.dataTransfer.types.length > 0) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
+                    onDragLeave={() => setDragOverEventId((prev) => (prev === ev.id ? null : prev))}
                     onDrop={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       const sourceId = e.dataTransfer.getData('eventId');
+                      clearDragState();
                       if (!sourceId || sourceId === ev.id) return;
                       onSwapEvents(sourceId, ev.id);
                     }}
-                    onContextMenu={(e) => e.preventDefault()}
                     onMouseDown={(e) => {
                       if (e.button === 2) {
                         e.stopPropagation();
@@ -252,11 +272,14 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                       e.stopPropagation();
                       onEventClick(ev);
                     }}
-                    className={`flex cursor-grab items-center gap-1 rounded px-1.5 py-1 text-xs font-medium leading-tight text-white active:cursor-grabbing ${ev.done ? 'opacity-50' : ''}`}
+                    className={`flex cursor-grab items-center gap-1 rounded px-1.5 py-1 text-xs font-medium leading-tight text-white active:cursor-grabbing ${
+                      dragOverEventId === ev.id ? 'ring-2 ring-inset ring-white' : ''
+                    }`}
                     style={{
                       backgroundColor: ev.color,
-                      pointerEvents: copySource ? 'none' : 'auto',
-                      opacity: draggingId === ev.id ? 0.3 : undefined,
+                      // The dragged chip itself must not be a drop target
+                      pointerEvents: gestureActive || draggingId === ev.id ? 'none' : 'auto',
+                      opacity: draggingId === ev.id ? 0.3 : ev.done ? 0.5 : undefined,
                     }}
                     title={ev.title}
                   >
@@ -264,12 +287,12 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
                       type="checkbox"
                       checked={ev.done}
                       onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { e.stopPropagation(); onToggleDone(ev.id); }}
-                      className="h-3 w-3 shrink-0 accent-white cursor-pointer"
+                      onChange={() => onToggleDone(ev.id)}
+                      className="h-3 w-3 shrink-0 cursor-pointer accent-white"
                     />
                     <span className={`min-w-0 flex-1 truncate ${ev.done ? 'line-through' : ''}`}>
                       {ev.start_time && (
-                        <span className="mr-1 opacity-80">{ev.start_time.slice(0, 5)}</span>
+                        <span className="mr-1 opacity-80">{hhmm(ev.start_time)}</span>
                       )}
                       {ev.title}
                     </span>
@@ -295,7 +318,7 @@ export default function MonthView({ year, month, events, onDateClick, onDateRang
           <button
             onClick={() => onCancelPaste?.()}
             className="rounded p-1 hover:bg-white/20"
-            title="취소"
+            title="취소 (ESC)"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
