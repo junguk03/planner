@@ -12,6 +12,34 @@ type Props = {
   onRecoveryDone?: () => void;
 };
 
+const redirectTo = () => (typeof window !== 'undefined' ? window.location.origin : undefined);
+
+type AuthFailure = { code?: string; message: string };
+
+const RATE_LIMITED = '요청이 많아 잠시 막혔습니다. 몇 분 뒤에 다시 시도해 주세요.';
+const isRateLimit = (error: AuthFailure) =>
+  error.code === 'over_email_send_rate_limit' || error.code === 'over_request_rate_limit';
+
+/** What to tell someone whose sign-up failed (never the raw backend message, CWE-209). */
+function signupErrorText(error: AuthFailure): string {
+  if (isRateLimit(error)) return RATE_LIMITED;
+  switch (error.code) {
+    case 'user_already_exists':
+    case 'email_exists':
+      return '이미 사용 중인 이메일입니다.';
+    case 'signup_disabled':
+      return '지금은 새 회원가입을 받지 않고 있습니다.';
+    case 'email_address_invalid':
+      return '사용할 수 없는 이메일 주소입니다. 주소를 다시 확인해 주세요.';
+    case 'email_address_not_authorized':
+      return '이 주소로는 확인 메일을 보낼 수 없습니다. 운영자에게 문의해 주세요.';
+    case 'weak_password':
+      return '비밀번호가 너무 쉽습니다. 더 복잡하게 만들어 주세요.';
+  }
+  if (error.message.includes('already registered')) return '이미 사용 중인 이메일입니다.';
+  return '회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+}
+
 function passwordProblem(password: string, confirmPassword: string): string | null {
   if (password.length < 8) return '비밀번호는 8자 이상이어야 합니다.';
   if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return '비밀번호는 영문과 숫자를 모두 포함해야 합니다.';
@@ -33,11 +61,14 @@ export default function Login({ recovery = false, onRecoveryDone }: Props) {
   );
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  // The account exists but its email isn't confirmed yet: offer to send the mail again
+  const [canResend, setCanResend] = useState(false);
 
   const reset = (nextMode: Mode) => {
     setMode(nextMode);
     setError('');
     setMessage('');
+    setCanResend(false);
     setPassword('');
     setConfirmPassword('');
   };
@@ -49,8 +80,16 @@ export default function Login({ recovery = false, onRecoveryDone }: Props) {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
+    setCanResend(false);
     if (error) {
-      setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      if (error.code === 'email_not_confirmed') {
+        setError('이메일 인증이 아직 끝나지 않았습니다. 받은 메일의 확인 링크를 눌러 주세요.');
+        setCanResend(true);
+      } else if (isRateLimit(error)) {
+        setError(RATE_LIMITED);
+      } else {
+        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      }
     } else {
       if (rememberMe) {
         localStorage.setItem('rememberMe', 'true');
@@ -73,23 +112,46 @@ export default function Login({ recovery = false, onRecoveryDone }: Props) {
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      // The confirmation link must come back to this site, not the project's default URL
+      options: { emailRedirectTo: redirectTo() },
+    });
 
     if (error) {
-      if (error.message.includes('already registered')) {
-        setError('이미 사용 중인 이메일입니다.');
-      } else {
-        // Avoid leaking raw backend error details (CWE-209)
-        setError('회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
-        console.error('signup error:', error);
-      }
+      setError(signupErrorText(error));
+      console.error('signup error:', error);
     } else if (data.session) {
       // Email confirmation is off: already signed in. Keep the session for this tab.
       sessionStorage.setItem('activeSession', 'true');
+    } else if (data.user && data.user.identities && data.user.identities.length === 0) {
+      // With confirmation on, an address that already has an account comes back
+      // looking like a success, but with no identity attached and no mail sent.
+      setError('이미 사용 중인 이메일입니다. 로그인하거나 비밀번호 찾기를 이용해 주세요.');
     } else {
-      setMessage('가입 확인 이메일을 보냈습니다. 이메일을 확인해 주세요.');
+      setMessage(`${email} 주소로 확인 메일을 보냈습니다. 메일의 링크를 누르면 가입이 끝납니다. (안 보이면 스팸함도 확인해 주세요)`);
+      setCanResend(true);
     }
     setLoading(false);
+  };
+
+  const handleResend = async () => {
+    if (!email || loading) return;
+    setLoading(true);
+    setError('');
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: redirectTo() },
+    });
+    setLoading(false);
+    if (error) {
+      setError(isRateLimit(error) ? RATE_LIMITED : '확인 메일을 다시 보내지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      console.error('resend error:', error);
+      return;
+    }
+    setMessage(`${email} 주소로 확인 메일을 다시 보냈습니다.`);
   };
 
   const handleReset = async (e: React.FormEvent) => {
@@ -118,12 +180,10 @@ export default function Login({ recovery = false, onRecoveryDone }: Props) {
     setError('');
     setLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
-    });
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirectTo() });
 
     if (error) {
-      setError('오류가 발생했습니다. 다시 시도해 주세요.');
+      setError(isRateLimit(error) ? RATE_LIMITED : '오류가 발생했습니다. 다시 시도해 주세요.');
     } else {
       setMessage('비밀번호 재설정 링크를 이메일로 보냈습니다.');
     }
@@ -171,6 +231,17 @@ export default function Login({ recovery = false, onRecoveryDone }: Props) {
             <div className="mb-4 rounded-lg bg-primary/20 p-3 text-sm text-primary">
               {message}
             </div>
+          )}
+
+          {canResend && (
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={loading}
+              className="mb-4 w-full rounded-lg border border-border py-2 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground disabled:opacity-50"
+            >
+              확인 메일 다시 보내기
+            </button>
           )}
 
           {/* Email */}

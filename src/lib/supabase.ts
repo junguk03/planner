@@ -9,6 +9,11 @@ export const openedFromRecoveryLink =
   typeof window !== 'undefined' &&
   /(^|[#?&])type=recovery(&|$)/.test(window.location.hash + window.location.search);
 
+// True when the page was opened from any emailed link that signs the user in
+// (sign-up confirmation, password reset): the URL carries the new session.
+export const openedFromAuthLink =
+  typeof window !== 'undefined' && /(^|[#&])access_token=/.test(window.location.hash);
+
 // True when an emailed link (reset / confirm) came back as expired or invalid.
 export const authLinkFailed =
   typeof window !== 'undefined' && /(^|[#?&])error_code=/.test(window.location.hash + window.location.search);
