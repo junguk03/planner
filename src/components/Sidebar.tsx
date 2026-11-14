@@ -12,6 +12,7 @@ type Props = {
   onDeleteMemo: (id: string) => void;
   onPinMemo: (memo: Memo) => void;
   pinnedMemoIds: string[];
+  onImportPlan: () => void;
   onLogout: () => void;
 };
 
@@ -24,6 +25,7 @@ export default function Sidebar({
   onDeleteMemo,
   onPinMemo,
   pinnedMemoIds,
+  onImportPlan,
   onLogout,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -155,8 +157,17 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* Logout */}
+        {/* Plan import + logout */}
         <div className="border-t border-border px-4 py-3">
+          <button
+            onClick={onImportPlan}
+            className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            계획 가져오기
+          </button>
           <button
             onClick={onLogout}
             className="flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm text-muted transition-colors hover:bg-card-hover hover:text-danger"
