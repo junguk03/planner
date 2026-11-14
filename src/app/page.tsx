@@ -23,6 +23,8 @@ import MemoModal from '@/components/MemoModal';
 import PinnedMemo from '@/components/PinnedMemo';
 import SelectMode from '@/components/SelectMode';
 import Tutorial from '@/components/Tutorial';
+import ImportModal from '@/components/ImportModal';
+import type { ParsedPlan } from '@/lib/planImport';
 import {
   ACCOUNT_PINS_KEY,
   ACCOUNT_TUTORIAL_KEY,
@@ -56,6 +58,10 @@ type UndoEntry = {
 };
 
 const MAX_UNDO = 30;
+// Rows per read page / per insert / ids per delete request
+const READ_PAGE = 1000;
+const WRITE_CHUNK = 500;
+const ID_CHUNK = 100;
 const DEFAULT_PIN = { w: 240, h: 200 };
 
 const slotOf = (e: Event) => ({ date: e.date, start_time: e.start_time, end_time: e.end_time });
@@ -112,6 +118,9 @@ export default function Home() {
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [undoing, setUndoing] = useState(false);
   const pushUndo = (entry: UndoEntry) => setUndoStack((prev) => [...prev.slice(-(MAX_UNDO - 1)), entry]);
+
+  // "계획 가져오기" window
+  const [importOpen, setImportOpen] = useState(false);
 
   // Guided tour of the features
   const [tourOpen, setTourOpen] = useState(false);
@@ -713,6 +722,49 @@ export default function Home() {
     [changePins],
   );
 
+  /** Every stored event between two dates (inclusive), read in pages — a long range can exceed one response. */
+  const fetchEventsBetween = async (from: string, to: string): Promise<Event[] | null> => {
+    if (!user) return null;
+    const all: Event[] = [];
+    for (let page = 0; ; page++) {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('date', from)
+        .lte('date', to)
+        .order('date')
+        .order('id')
+        .range(page * READ_PAGE, (page + 1) * READ_PAGE - 1);
+      if (failed(error, '일정 확인')) return null;
+      const rows = (data as Event[] | null) ?? [];
+      all.push(...rows);
+      if (rows.length < READ_PAGE) return all;
+    }
+  };
+
+  /** Splits new events into those that can go in and those that already exist or would overlap. */
+  const pickInsertable = (candidates: NewEvent[], existing: Event[]) => {
+    const pool = [...existing];
+    const inserts: NewEvent[] = [];
+    let skipped = 0;
+    for (const candidate of candidates) {
+      const duplicate = pool.some(
+        (e) =>
+          e.date === candidate.date &&
+          e.title === candidate.title &&
+          hhmm(e.start_time) === hhmm(candidate.start_time),
+      );
+      if (duplicate || findTimeConflict(candidate, pool)) {
+        skipped++;
+        continue;
+      }
+      inserts.push(candidate);
+      pool.push({ ...candidate, id: `pending-${inserts.length}`, done: false, created_at: '' });
+    }
+    return { inserts, skipped };
+  };
+
   /**
    * Copy the selected events ("매주 반복" over a date range, or all onto one day).
    * Copies that already exist or would overlap another event are skipped.
@@ -767,31 +819,9 @@ export default function Home() {
 
     // Compare against what is really stored for the target dates —
     // they are often outside the month that is currently loaded.
-    const { data: existing, error: readError } = await supabase
-      .from('events')
-      .select('*')
-      .eq('user_id', user.id)
-      .gte('date', rangeFrom)
-      .lte('date', rangeTo);
-    if (failed(readError, '일정 확인')) return false;
-
-    const pool: Event[] = [...((existing as Event[] | null) ?? [])];
-    const inserts: NewEvent[] = [];
-    let skipped = 0;
-    for (const candidate of candidates) {
-      const duplicate = pool.some(
-        (e) =>
-          e.date === candidate.date &&
-          e.title === candidate.title &&
-          hhmm(e.start_time) === hhmm(candidate.start_time),
-      );
-      if (duplicate || findTimeConflict(candidate, pool)) {
-        skipped++;
-        continue;
-      }
-      inserts.push(candidate);
-      pool.push({ ...candidate, id: `pending-${inserts.length}`, done: false, created_at: '' });
-    }
+    const existing = await fetchEventsBetween(rangeFrom, rangeTo);
+    if (!existing) return false;
+    const { inserts, skipped } = pickInsertable(candidates, existing);
 
     const skippedText = skipped > 0 ? ` (${skipped}개는 이미 있거나 시간이 겹쳐서 건너뜀)` : '';
     if (inserts.length === 0) {
@@ -805,6 +835,65 @@ export default function Home() {
     notify(`일정 ${inserts.length}개를 복사했습니다.${skippedText}`, 'info');
     fetchEvents();
     setSelectModeOpen(false);
+    return true;
+  };
+
+  /**
+   * "계획 가져오기": insert a whole plan (events + memos) at once.
+   * Events that already exist or would overlap another event are skipped, and so are
+   * memos whose title already exists, so importing the same plan twice adds nothing.
+   * The inserted events are one undo step.
+   */
+  const importPlan = async (plan: ParsedPlan): Promise<boolean> => {
+    if (!user || plan.errors.length > 0) return false;
+
+    let createdIds: string[] = [];
+    let skipped = 0;
+    if (plan.events.length > 0) {
+      const dates = plan.events.map((e) => e.date).sort();
+      const existing = await fetchEventsBetween(dates[0], dates[dates.length - 1]);
+      if (!existing) return false;
+      const picked = pickInsertable(
+        plan.events.map((e) => ({ user_id: user.id, ...e })),
+        existing,
+      );
+      skipped = picked.skipped;
+      for (let i = 0; i < picked.inserts.length; i += WRITE_CHUNK) {
+        const { data, error } = await supabase
+          .from('events')
+          .insert(picked.inserts.slice(i, i + WRITE_CHUNK))
+          .select('id');
+        if (failed(error, '계획 가져오기')) {
+          // Keep what did go in undoable, then stop
+          if (createdIds.length > 0) pushUndo({ label: `계획 가져오기 (일정 ${createdIds.length}개)`, remove: createdIds });
+          fetchEvents();
+          return false;
+        }
+        createdIds = createdIds.concat(((data as { id: string }[] | null) ?? []).map((r) => r.id));
+      }
+      if (createdIds.length > 0) pushUndo({ label: `계획 가져오기 (일정 ${createdIds.length}개)`, remove: createdIds });
+    }
+
+    const knownTitles = new Set(memos.map((m) => m.title));
+    const newMemos = plan.memos.filter((m) => !knownTitles.has(m.title));
+    if (newMemos.length > 0) {
+      const { error } = await supabase.from('memos').insert(newMemos.map((m) => ({ user_id: user.id, ...m })));
+      if (failed(error, '메모 가져오기')) {
+        fetchEvents();
+        return false;
+      }
+    }
+
+    const skippedMemos = plan.memos.length - newMemos.length;
+    const skippedParts = [
+      skipped > 0 ? `일정 ${skipped}개` : '',
+      skippedMemos > 0 ? `메모 ${skippedMemos}개` : '',
+    ].filter(Boolean);
+    const skippedText = skippedParts.length > 0 ? ` (이미 있거나 시간이 겹쳐서 건너뜀: ${skippedParts.join(', ')})` : '';
+    notify(`일정 ${createdIds.length}개, 메모 ${newMemos.length}개를 가져왔습니다.${skippedText}`, 'info');
+    fetchEvents();
+    fetchMemos();
+    setImportOpen(false);
     return true;
   };
 
@@ -832,7 +921,14 @@ export default function Home() {
       let error: { message: string } | null = null;
 
       if (entry.remove && entry.remove.length > 0) {
-        ({ error } = await supabase.from('events').delete().in('id', entry.remove).eq('user_id', user.id));
+        // In pieces: the ids travel in the request address, which has a length limit
+        for (let i = 0; i < entry.remove.length && !error; i += ID_CHUNK) {
+          ({ error } = await supabase
+            .from('events')
+            .delete()
+            .in('id', entry.remove.slice(i, i + ID_CHUNK))
+            .eq('user_id', user.id));
+        }
       }
       if (!error && entry.restore) {
         const results = await Promise.all(
@@ -877,7 +973,7 @@ export default function Home() {
   useEffect(() => {
     undoLastRef.current = undoLast;
   });
-  const overlayOpen = modal.open || memoModal.open || selectModeOpen || tourOpen;
+  const overlayOpen = modal.open || memoModal.open || selectModeOpen || tourOpen || importOpen;
   useEffect(() => {
     if (overlayOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -896,6 +992,7 @@ export default function Home() {
     closeModal();
     setMemoModal({ open: false, memo: null });
     setSelectModeOpen(false);
+    setImportOpen(false);
     setSidebarOpen(false);
     setClickPasteSource(null);
     tourReturnView.current = view;
@@ -1145,6 +1242,9 @@ export default function Home() {
         />
       )}
 
+      {/* Plan import */}
+      {importOpen && <ImportModal onImport={importPlan} onClose={() => setImportOpen(false)} />}
+
       {/* Memo Modal */}
       {memoModal.open && (
         <MemoModal
@@ -1227,6 +1327,10 @@ export default function Home() {
         onDeleteMemo={deleteMemo}
         onPinMemo={togglePinMemo}
         pinnedMemoIds={pins.map((p) => p.id)}
+        onImportPlan={() => {
+          setImportOpen(true);
+          setSidebarOpen(false);
+        }}
         onLogout={logout}
       />
     </div>

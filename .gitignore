@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# personal plan files for "계획 가져오기" (not part of the app)
+/plans/
